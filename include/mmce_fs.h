@@ -1,0 +1,29 @@
+#ifndef MMCE_FS_H
+#define MMCE_FS_H
+
+#define MMCEMAN_MAX_FD 8
+#define MMCEMAN_FS_WAIT_TIMEOUT 128000
+
+#define MMCEMAN_FS_GAMEID_FD 255
+
+enum mmceman_cmds_fs {
+    MMCEMAN_CMD_FS_OPEN = 0x40,
+    MMCEMAN_CMD_FS_CLOSE = 0x41,
+    MMCEMAN_CMD_FS_READ = 0x42,
+    MMCEMAN_CMD_FS_WRITE = 0x43,
+    MMCEMAN_CMD_FS_LSEEK = 0x44,
+    MMCEMAN_CMD_FS_IOCTL = 0x45,
+    MMCEMAN_CMD_FS_REMOVE = 0x46,
+    MMCEMAN_CMD_FS_MKDIR = 0x47,
+    MMCEMAN_CMD_FS_RMDIR = 0x48,
+    MMCEMAN_CMD_FS_DOPEN = 0x49,
+    MMCEMAN_CMD_FS_DCLOSE = 0x4a,
+    MMCEMAN_CMD_FS_DREAD = 0x4b,
+    MMCEMAN_CMD_FS_GETSTAT = 0x4c,
+    MMCEMAN_CMD_FS_CHSTAT = 0x4d
+};
+
+int mmceman_fs_register();
+int mmceman_fs_unregister();
+
+#endif
