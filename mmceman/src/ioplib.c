@@ -8,7 +8,7 @@
 # Review ps2sdk README & LICENSE files for further details.
 #
 # taken from MX4SIO driver for simplicity.
-# all credits go to maximus32 and qnox
+# all credits go to maximus32
 */
 #include "ioplib.h"
 #include <intrman.h>

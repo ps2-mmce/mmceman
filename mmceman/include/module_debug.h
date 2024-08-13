@@ -1,13 +1,18 @@
 #ifndef MODULE_DEBUG_H
 #define MODULE_DEBUG_H
 
-#define MODNAME "MMCEMAN"
+#ifndef MMCEDRV
+#define MODNAME "mmceman"
+#else
+#define MODNAME "mmcedrv"
+#endif
 
 #define DEBUG
 
 #ifdef DEBUG
 #include <stdio.h>
 #define DPRINTF(fmt, x...) printf(MODNAME": "fmt, ##x)
+//#define DPRINTF(x...) 
 #else
 #define DPRINTF(x...) 
 #endif

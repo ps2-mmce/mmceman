@@ -16,11 +16,12 @@
 #include "irx.h"
 
 /* Please keep these in alphabetical order!  */
+#include "dmacman.h"
 #include "intrman.h"
-#include "ioman.h"
+#include "iomanX.h"
 #include "loadcore.h"
-#include "sio2man.h"
-#include "secrman.h"
+#include "thevent.h"
+#include "thsemap.h"
 #include "stdio.h"
 #include "sysclib.h"
 
