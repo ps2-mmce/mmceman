@@ -3,6 +3,7 @@
 #include <thsemap.h>
 
 #include "ioplib.h"
+#include "intrman.h"
 #include "sio2man.h"
 #include "sio2man_hook.h"
 
@@ -282,21 +283,31 @@ int sio2man_hook_init()
     }
     pRegisterLibraryEntries = ioplib_hookExportEntry(lib, 6, hookRegisterLibraryEntries);
 
-    // Hook into 'intrman' to grab the address of SIO2MAN's intr handler and arg
-    lib = ioplib_getByName("intrman");
-    if (lib == NULL) {
-        DeleteSema(lock_sema);
-        DeleteSema(lock_sema2);
-        DPRINTF("Failed to get intrman ptr\n");
-        return -1;
-    }
-    pRegisterIntrHandler = ioplib_hookExportEntry(lib, 4, hookRegisterIntrHandler);
-
     // Hook into 'sio2man' now if it's already loaded
     lib = ioplib_getByName("sio2man");
     if (lib != NULL) {
+        intrman_internals_t *intrman_internals = GetIntrmanInternalData();
+        if (intrman_internals != NULL) {
+            sio2man_intr_handler_ptr = intrman_internals->interrupt_handler_table[17].handler; //TODO: mode set in lowest 2 bits
+            sio2man_intr_arg_ptr = intrman_internals->interrupt_handler_table[17].userdata;
+            DPRINTF("Got SIO2MAN intr handler @ 0x%p, arg @ 0x%p\n", sio2man_intr_handler_ptr, sio2man_intr_arg_ptr);
+        } else {
+            DPRINTF("Failed to get intrman internals ptr\n");
+        }
+
         _sio2man_hook(lib);
         ioplib_relinkExports(lib);
+    } else {
+        // If SIO2MAN is not already loaded, hook into intrman to get SIO2MAN's intr hook later
+        // Hook into 'intrman' to grab the address of SIO2MAN's intr handler and arg
+        lib = ioplib_getByName("intrman");
+        if (lib == NULL) {
+            DeleteSema(lock_sema);
+            DeleteSema(lock_sema2);
+            DPRINTF("Failed to get intrman ptr\n");
+            return -1;
+        }
+        pRegisterIntrHandler = ioplib_hookExportEntry(lib, 4, hookRegisterIntrHandler);
     }
 
     return 0;

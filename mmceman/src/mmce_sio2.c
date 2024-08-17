@@ -1,6 +1,7 @@
 
 #include <dmacman.h>
 #include <sio2regs.h>
+#include <thbase.h>
 #include <thevent.h>
 #include <intrman.h>
 
@@ -12,7 +13,8 @@
 
 #include "module_debug.h"
 
-#define EF_SIO2_INTR_COMPLETE	0x00000200
+#define EF_SIO2_INTR_COMPLETE	    0x00000200
+#define EF_SIO2_TRANSFER_TIMEOUT    0x00000400
 
 static int mmce_port;
 static int mmce_slot;
@@ -32,6 +34,10 @@ void *sio2man_intr_arg_ptr;
 int (*mmce_sio2_intr_handler_ptr)(void *arg) = NULL;
 void *mmce_sio2_intr_arg_ptr = NULL;
 
+
+static iop_sys_clock_t timeout_single_transfer;
+static iop_sys_clock_t timeout_multi_transfer;
+
 int mmce_sio2_intr_handler(void *arg)
 {
 	int ef = *(int *)arg;
@@ -41,6 +47,13 @@ int mmce_sio2_intr_handler(void *arg)
 	iSetEventFlag(ef, EF_SIO2_INTR_COMPLETE);
 
 	return 1;
+}
+
+unsigned int mmce_sio2_timeout_handler(void *arg)
+{
+    int ef = *(int *)arg;
+    iSetEventFlag(ef, EF_SIO2_TRANSFER_TIMEOUT);
+    return 0;
 }
 
 int mmce_sio2_init()
@@ -77,6 +90,9 @@ int mmce_sio2_init()
     sceSetDMAPriority(IOP_DMAC_SIO2out, 3);
     sceEnableDMAChannel(IOP_DMAC_SIO2in);
     sceEnableDMAChannel(IOP_DMAC_SIO2out);
+
+    //1s
+    USec2SysClock(1000000, &timeout_single_transfer);
 
     return 0;
 }
@@ -145,6 +161,7 @@ void mmce_sio2_lock()
 
     //Copy port ctrl settings to SIO2 registers
     mmce_sio2_reg_set_pctrl();
+
 }
 
 void mmce_sio2_unlock()
@@ -169,13 +186,16 @@ void mmce_sio2_unlock()
 
     /* unlock sio2man driver */
     sio2man_hook_sio2_unlock();
+
 }
 
 
 int mmce_sio2_send(u8 in_size, u8 out_size, u8 *in_buf, u8 *out_buf)
 {
+    u32 resbits;
+
     //Reset SIO2 + FIFO pointers, enable interrupts
-    inl_sio2_ctrl_set(0x3bc);
+    inl_sio2_ctrl_set(0x3ac);
 
     //Add transfer to queue
     inl_sio2_regN_set(0,
@@ -200,8 +220,19 @@ int mmce_sio2_send(u8 in_size, u8 out_size, u8 *in_buf, u8 *out_buf)
     inl_sio2_ctrl_set(inl_sio2_ctrl_get() | 1);
 
     //Wait for transfer to complete
-    WaitEventFlag(event_flag, EF_SIO2_INTR_COMPLETE, 0, NULL);
-	ClearEventFlag(event_flag, ~EF_SIO2_INTR_COMPLETE);
+    SetAlarm(&timeout_single_transfer, mmce_sio2_timeout_handler, &event_flag);
+
+    WaitEventFlag(event_flag, EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE, 1, &resbits);
+    if (resbits & EF_SIO2_TRANSFER_TIMEOUT) {
+        DPRINTF("Detected transfer timeout, attempting to reset SIO2\n");
+        inl_sio2_ctrl_set(0x3bc); //Reset SIO2
+        ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
+        return -1;
+    } else {
+        CancelAlarm(mmce_sio2_timeout_handler,  &event_flag);
+    }
+    
+    ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
 
     //Copy data out of RX FIFO
     for (int i = 0; i < out_size; i++) {
@@ -313,9 +344,9 @@ int mmce_sio2_read_raw(u32 size, u8 *buffer)
                       TR_CTRL_TX_DATA_SZ(0)           |
                       TR_CTRL_RX_DATA_SZ(pio_size);
 
-   while (bytes_done < size) {
+    while (bytes_done < size) {
         //Reset SIO2 + FIFO pointers, enable interrupts
-        inl_sio2_ctrl_set(0x3bc);
+        inl_sio2_ctrl_set(0x3ac);
 
         //Used for DMA
         offset = bytes_done;

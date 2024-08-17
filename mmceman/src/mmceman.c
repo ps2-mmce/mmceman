@@ -83,7 +83,9 @@ int __start(int argc, char *argv[])
     }
 
     //TEMP: until 'mmce1:' and 'mmce2:' are implemented
-    auto_detect_port();
+    //auto_detect_port();
+
+    mmce_sio2_set_port(3);
 
     //Attach filesystem to iomanX
     mmce_fs_register();

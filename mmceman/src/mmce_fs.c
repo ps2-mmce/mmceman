@@ -17,9 +17,6 @@ static int not_supported_operation() {
 }
 
 static int mmce_fs_fds[MMCE_FS_MAX_FD];
-static int mmce_gameid_fd = 255;
-static int mmce_dev_fd = 254;
-static int mmce_log_fd = 253;
 
 static int *mmce_fs_find_free_handle(void) {
     for (int i = 0; i < MMCE_FS_MAX_FD; i++)
@@ -51,18 +48,9 @@ int mmce_fs_open(iomanX_iop_file_t *file, const char *name, int flags, int mode)
 
     DPRINTF("%s unit: %i name: %s flags: 0x%x\n", __func__, file->unit, name, flags);
 
-    //If path doesn't start with '/' it's internal
-    if (name[0] != '/') {
-        if (strcmp(name, "dev") == 0)
-            file->privdata = &mmce_dev_fd;   //ioctl dev fd
-        else if (strcmp(name, "gameid") == 0)
-            file->privdata = &mmce_gameid_fd;//gameid fd
-
-        return 0;
-    }
-
     //Make sure theres file handles available
     file->privdata = (int*)mmce_fs_find_free_handle();
+
     if (file->privdata == NULL) {
         DPRINTF("%s ERROR: No free file handles available\n", __func__);
         return -1;
@@ -105,29 +93,19 @@ int mmce_fs_open(iomanX_iop_file_t *file, const char *name, int flags, int mode)
         return -1;
     }
 
-    //Packet #3 - n: Polling for ready 
-    res = mmce_sio2_wait_equal(1, MMCE_FS_WAIT_TIMEOUT);
-    if (res == -1) {
-        DPRINTF("%s ERROR: P3 - Polling timedout\n", __func__);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
     //Packet #4 - File handle
     res = mmce_sio2_send(0x0, 0x3, wrbuf, rdbuf);
+    mmce_sio2_unlock();
     if (res == -1) {
-        DPRINTF("%s ERROR: P4 - Timedout waiting for /ACK\n", __func__);
-        mmce_sio2_unlock();
+        DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
         return -1;
     }
-
-    mmce_sio2_unlock();
 
     if (rdbuf[0x1] != 0xff) {
         *(int*)file->privdata = rdbuf[0x1];
         DPRINTF("%s Opened fd: %i\n", __func__, rdbuf[0x1]);
     } else {
-        DPRINTF("%s ERROR: Got fd: %i\n", __func__, rdbuf[0x1]);
+        DPRINTF("%s ERROR: Got bad fd: %i\n", __func__, rdbuf[0x1]);
         file->privdata = NULL;
         return -1;
     }
@@ -139,8 +117,8 @@ int mmce_fs_close(iomanX_iop_file_t *file)
 {
     int res = 0;
 
-    u8 wrbuf[0x5];
-    u8 rdbuf[0x5];
+    u8 wrbuf[0x4];
+    u8 rdbuf[0x6];
 
     DPRINTF("%s fd: %i\n", __func__, (u8)*(int*)file->privdata);
 
@@ -152,42 +130,23 @@ int mmce_fs_close(iomanX_iop_file_t *file)
     wrbuf[0x1] = MMCE_CMD_FS_CLOSE;         //Command
     wrbuf[0x2] = MMCE_RESERVED;             //Reserved
     wrbuf[0x3] = (u8)*(int*)file->privdata; //File descriptor
-    
-    mmce_sio2_lock();
 
-    //Packet #1: Command and file descriptor
-    res = mmce_sio2_send(0x4, 0x2, wrbuf, rdbuf);
+    //Packet #1: Command, file descriptor, return value
+    mmce_sio2_lock();
+    res = mmce_sio2_send(0x4, 0x6, wrbuf, rdbuf);
+    mmce_sio2_unlock();
+
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
-        mmce_sio2_unlock();
         return -1;
     }
 
     if (rdbuf[0x1] != MMCE_REPLY_CONST) {
         DPRINTF("%s ERROR: Invalid response from card. Got 0x%x, Expected 0x%x\n", __func__, rdbuf[0x1], MMCE_REPLY_CONST);
-        mmce_sio2_unlock();
         return -1;
     }
 
-    //Packet #2 - n: Polling ready
-    res = mmce_sio2_wait_equal(1, MMCE_FS_WAIT_TIMEOUT);
-    if (res == -1) {
-        DPRINTF("%s ERROR: P2 - Polling timedout\n", __func__);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
-    //Packet #3: Return value
-    res = mmce_sio2_send(0x0, 0x3, NULL, rdbuf);
-    if (res == -1) {
-        DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
-    mmce_sio2_unlock();
-
-    if (rdbuf[0x1] == 0x0) {
+    if (rdbuf[0x4] == 0x0) {
         *(int*)file->privdata = -1;
     } else {
         res = rdbuf[0x1];
@@ -207,20 +166,6 @@ int mmce_fs_read(iomanX_iop_file_t *file, void *ptr, int size)
     u8 rdbuf[0xA];
 
     DPRINTF("%s fd: %i, size: %i\n", __func__, (u8)*(int*)file->privdata, size);
-
-    //Reserved fd values
-    if (*(int*)file->privdata >= 250) {
-        //Reserved dev fd
-        if (*(int*)file->privdata == mmce_dev_fd) {
-            return 0;
-        }
-
-        //Reserved gameid fd
-        if (*(int*)file->privdata == mmce_gameid_fd) {
-            mmce_cmd_get_gameid(ptr);
-            return size;
-        }
-    }
 
     wrbuf[0x0] = MMCE_ID;                   //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_READ;          //Command
@@ -295,19 +240,6 @@ int mmce_fs_write(iomanX_iop_file_t *file, void *ptr, int size)
 
     DPRINTF("%s fd: %i, size: %i\n", __func__, (u8)*(int*)file->privdata, size);
 
-    if (*(int*)file->privdata >= 250) {
-        //Reserved dev fd
-        if (*(int*)file->privdata == mmce_dev_fd) {
-            return 0;
-        }
-
-        //Reserved gameid fd
-        if (*(int*)file->privdata == mmce_gameid_fd) {
-            mmce_cmd_set_gameid(ptr);
-            return size;
-        }
-    }
-
     wrbuf[0x0] = MMCE_ID;                   //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_WRITE;         //Command
     wrbuf[0x2] = MMCE_RESERVED;             //Reserved
@@ -377,14 +309,9 @@ int mmce_fs_lseek(iomanX_iop_file_t *file, int offset, int whence)
     int position = -1;
 
     u8 wrbuf[0x9];
-    u8 rdbuf[0xA];
+    u8 rdbuf[0xe];
 
     DPRINTF("%s fd: %i, offset: %i, whence: %i\n", __func__, (u8)*(int*)file->privdata, offset, whence);
-
-    //Reserved fd
-    if (*(int*)file->privdata >= 250) {
-        return 0;
-    }
 
     wrbuf[0x0] = MMCE_ID;                       //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_LSEEK;             //Command
@@ -395,51 +322,26 @@ int mmce_fs_lseek(iomanX_iop_file_t *file, int offset, int whence)
     wrbuf[0x6] = (offset & 0x0000FF00) >> 8;
     wrbuf[0x7] = (offset & 0x000000FF);
     wrbuf[0x8] = (u8)(whence);                  //Whence
-    
-    mmce_sio2_lock();
 
     //Packet #1: Command, file descriptor, offset, and whence
-    res = mmce_sio2_send(0x9, 0xA, wrbuf, rdbuf);
+    mmce_sio2_lock();
+    res = mmce_sio2_send(0x9, 0xe, wrbuf, rdbuf);
+    mmce_sio2_unlock();
+    
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
-        mmce_sio2_unlock();
         return -1;
     }
 
     if (rdbuf[0x1] != MMCE_REPLY_CONST) {
         DPRINTF("%s ERROR: Invalid response from card. Got 0x%x, Expected 0x%x\n", __func__, rdbuf[0x1], MMCE_REPLY_CONST);
-        mmce_sio2_unlock();
         return -1;
     }
 
-    if (rdbuf[0x9] != 0) {
-        DPRINTF("%s ERROR: Returned %i, Expected 0\n", __func__, rdbuf[0x9]);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
-    //Packet #2 - n: Polling ready
-    res = mmce_sio2_wait_equal(1, MMCE_FS_WAIT_TIMEOUT);
-    if (res == -1) {
-        DPRINTF("%s ERROR: P2 - Polling timedout\n", __func__);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
-    //Packet #n + 1: Position
-    res = mmce_sio2_send(0x0, 0x5, NULL, rdbuf);
-    if (res == -1) {
-        DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
-    mmce_sio2_unlock();
-    
-    position  = rdbuf[0x1] << 24;
-    position |= rdbuf[0x2] << 16;
-    position |= rdbuf[0x3] << 8;
-    position |= rdbuf[0x4];
+    position  = rdbuf[0x9] << 24;
+    position |= rdbuf[0xa] << 16;
+    position |= rdbuf[0xb] << 8;
+    position |= rdbuf[0xc];
 
     DPRINTF("%s position %i\n", __func__, position);
 
@@ -456,74 +358,7 @@ int mmce_fs_ioctl(iomanX_iop_file_t *file, int cmd, void *data)
 
     u32 args = *(u32*)data;
     
-    DPRINTF("%s cmd: %i, args: 0x%x\n", __func__, cmd, args);
 
-    return 0;
-
-    switch (cmd) {
-        case MMCE_CMD_PING:
-            res = mmce_cmd_ping();
-        break;
-
-        case MMCE_CMD_GET_STATUS:
-            res = mmce_cmd_get_status();
-        break;
-        
-        case MMCE_CMD_GET_CARD:
-            res = mmce_cmd_get_card();
-        break;
-        
-        case MMCE_CMD_SET_CARD: 
-            type = (args & 0xff000000) >> 24;
-            mode = (args & 0x00ff0000) >> 16;
-            num  = (args & 0x0000ffff);
-
-            res = mmce_cmd_set_card(type, mode, num);
-        break;
-        
-        case MMCE_CMD_GET_CHANNEL:
-            res = mmce_cmd_get_channel();
-        break;
-
-        case MMCE_CMD_SET_CHANNEL:
-            mode = (args & 0x00ff0000) >> 16;
-            num  = (args & 0x0000ffff);
-            res = mmce_cmd_set_channel(mode, num);
-        break;
-    
-        case MMCE_CMD_IOCTL_PROBE_PORT:
-            mmce_sio2_set_port(2);
-
-            DPRINTF("Pinging port 2 (MC1)\n");
-            res = mmce_cmd_ping();
-            if (res != -1) {
-                DPRINTF("Got valid response from MMCE in port 2 (MC1)\n"); 
-                res = 2;
-                break;
-            }
-
-            DPRINTF("Failed to get valid response from port 2 (MC1)\n");
-            mmce_sio2_set_port(3);
-
-            DPRINTF("Pinging port 3 (MC2)\n");
-            res = mmce_cmd_ping();
-            if (res != -1) {
-                DPRINTF("Got valid response from MMCE in port 3 (MC2)\n");
-                res = 3;
-                break;
-            }
-            DPRINTF("Failed to get valid response from either port, check connection\n");
-            res = 0;
-        break;
-
-        case MMCE_CMD_IOCTL_GET_PORT:
-            res = mmce_sio2_get_port();
-        break;
-
-        default:
-        break;
-    
-    }
     return res;
 }
 
@@ -569,29 +404,19 @@ int mmce_fs_remove(iomanX_iop_file_t *file, const char *name)
         return -1;
     }
 
-    //Packet #3 - n: Polling ready
-    res = mmce_sio2_wait_equal(1, MMCE_FS_WAIT_TIMEOUT);
-    if (res == -1) {
-        DPRINTF("%s ERROR: P3 - Polling timedout\n", __func__);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
-    //Packet #n + 1: Return value
+    //Packet #3: Return value
     res = mmce_sio2_send(0x0, 0x3, NULL, rdbuf);
+    mmce_sio2_unlock();
+
     if (res == -1) {
-        DPRINTF("%s ERROR: P4 - Timedout waiting for /ACK\n", __func__);
-        mmce_sio2_unlock();
+        DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
         return -1;
     }
 
     if (rdbuf[0x1] != 0x0) {
         DPRINTF("%s ERROR: Card failed to remove %s, return value %i\n", __func__, name, rdbuf[0x1]);
-        mmce_sio2_unlock();
         return -1;
     }
-
-    mmce_sio2_unlock();
 
     return 0;
 }
@@ -636,29 +461,20 @@ int mmce_fs_mkdir(iomanX_iop_file_t *file, const char *name, int flags)
         return -1;
     }
 
-    //Packet #3 - n: Polling ready
-    res = mmce_sio2_wait_equal(1, MMCE_FS_WAIT_TIMEOUT);
-    if (res == -1) {
-        DPRINTF("%s ERROR: P3 - Polling timedout\n", __func__);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
-    //Packet #n + 1: Return value
+    //Packet #3: Return value
     res = mmce_sio2_send(0x0, 0x3, NULL, rdbuf);
+    mmce_sio2_unlock();
+
     if (res == -1) {
-        DPRINTF("%s ERROR: P4 - Timedout waiting for /ACK\n", __func__);
-        mmce_sio2_unlock();
+        DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
         return -1;
     }
 
     if (rdbuf[0x1] != 0x0) {
         DPRINTF("%s ERROR: Card failed to mkdir %s, return value %i\n", __func__, name, rdbuf[0x1]);
-        mmce_sio2_unlock();
         return -1;
     }
 
-    mmce_sio2_unlock();
     return 0;
 }
 
@@ -702,29 +518,20 @@ int mmce_fs_rmdir(iomanX_iop_file_t *file, const char *name)
         return -1;
     }
 
-    //Packet #3 - n: Polling ready
-    res = mmce_sio2_wait_equal(1, MMCE_FS_WAIT_TIMEOUT);
-    if (res == -1) {
-        DPRINTF("%s ERROR: P3 - Polling timedout\n", __func__);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
-    //Packet #n + 1: Return value
+    //Packet #3: Return value
     res = mmce_sio2_send(0x0, 0x3, NULL, rdbuf);
+    mmce_sio2_unlock();
+
     if (res == -1) {
-        DPRINTF("%s ERROR: P4 - Timedout waiting for /ACK\n", __func__);
-        mmce_sio2_unlock();
+        DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
         return -1;
     }
 
     if (rdbuf[0x1] != 0x0) {
         DPRINTF("%s ERROR: Card failed to rmdir %s, return value %i\n", __func__, name, rdbuf[0x1]);
-        mmce_sio2_unlock();
         return -1;
     }
 
-    mmce_sio2_unlock();
     return 0;
 }
 
@@ -775,23 +582,14 @@ int mmce_fs_dopen(iomanX_iop_file_t *file, const char *name)
         return -1;
     }
 
-    //Packet #3 - n: Polling ready
-    res = mmce_sio2_wait_equal(1, MMCE_FS_WAIT_TIMEOUT);
-    if (res == -1) {
-        DPRINTF("%s ERROR: P3 - Polling timedout\n", __func__);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
-    //Packet #n + 1: File handle
+    //Packet #n + 1: File descriptor
     res = mmce_sio2_send(0x0, 0x3, NULL, rdbuf);
+    mmce_sio2_unlock();
+
     if (res == -1) {
-        DPRINTF("%s ERROR: P4 - Timedout waiting for /ACK\n", __func__);
-        mmce_sio2_unlock();
+        DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
         return -1;
     }
-
-    mmce_sio2_unlock();
 
     if (rdbuf[0x1] != 0x0 && rdbuf[0x1] != 0xff) {
         *(int*)file->privdata = rdbuf[0x1];
@@ -809,60 +607,35 @@ int mmce_fs_dclose(iomanX_iop_file_t *file)
     int res;
 
     u8 wrbuf[0x5];
-    u8 rdbuf[0x5];
+    u8 rdbuf[0x6];
  
     DPRINTF("%s fd: %i\n", __func__, (u8)*(int*)file->privdata);
     
-    //Reserved fd
-    if (*(int*)file->privdata >= 250) {
-        return 0;
-    }
-
-    wrbuf[0x0] = MMCE_ID;                //Identifier
-    wrbuf[0x1] = MMCE_CMD_FS_DCLOSE;     //Command
-    wrbuf[0x2] = MMCE_RESERVED;          //Reserved
+    wrbuf[0x0] = MMCE_ID;                   //Identifier
+    wrbuf[0x1] = MMCE_CMD_FS_DCLOSE;        //Command
+    wrbuf[0x2] = MMCE_RESERVED;             //Reserved
     wrbuf[0x3] = (u8)*(int*)file->privdata; //File descriptor
-    
-    mmce_sio2_lock();
 
     //Packet #1: Command and file descriptor
-    res = mmce_sio2_send(0x4, 0x2, wrbuf, rdbuf);
+    mmce_sio2_lock();    
+    res = mmce_sio2_send(0x4, 0x6, wrbuf, rdbuf);
+    mmce_sio2_unlock();
+
     if (res == -1) {
-        DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
-        mmce_sio2_unlock();
+        DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);        
         return -1;
     }
 
     if (rdbuf[0x1] != MMCE_REPLY_CONST) {
         DPRINTF("%s ERROR: Invalid response from card. Got 0x%x, Expected 0x%x\n", __func__, rdbuf[0x1], MMCE_REPLY_CONST);
-        mmce_sio2_unlock();
         return -1;
     }
 
-    //Packet #2 - n: Polling ready
-    res = mmce_sio2_wait_equal(1, MMCE_FS_WAIT_TIMEOUT);
-    if (res == -1) {
-        DPRINTF("%s ERROR: P2 - Polling timedout\n", __func__);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
-    //Packet #n + 1: Return value
-    res = mmce_sio2_send(0x0, 0x3, NULL, rdbuf);
-    if (res == -1) {
-        DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
-    if (rdbuf[0x1] != 0x0) {
+    if (rdbuf[0x4] != 0x0) {
         DPRINTF("%s ERROR: Card failed to close dir %i, return value %i\n", __func__, (u8)*(int*)file->privdata, rdbuf[0x1]);
-        mmce_sio2_unlock();
         return -1;
     }
-    
-    mmce_sio2_unlock();
-    
+
     *(int*)file->privdata = -1;
     file->privdata = NULL;
 
@@ -875,11 +648,6 @@ int mmce_fs_dread(iomanX_iop_file_t *file, iox_dirent_t *dirent)
 
     u8 wrbuf[0x5];
     u8 rdbuf[0x2B];
-
-    //Reserved fd
-    if (*(int*)file->privdata >= 250) {
-        return -1;
-    }
 
     DPRINTF("%s fd: %i\n", __func__, (u8)*(int*)file->privdata);
 
@@ -909,14 +677,6 @@ int mmce_fs_dread(iomanX_iop_file_t *file, iox_dirent_t *dirent)
 
     if (rdbuf[0x4] != 0) {
         DPRINTF("%s ERROR: Returned %i, Expected 0\n", __func__, rdbuf[0x4]);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
-    //Packet #2 - n: Polling ready
-    res = mmce_sio2_wait_equal(1, MMCE_FS_WAIT_TIMEOUT);
-    if (res == -1) {
-        DPRINTF("%s ERROR: P2 - Polling timedout\n", __func__);
         mmce_sio2_unlock();
         return -1;
     }
@@ -1000,21 +760,123 @@ int mmce_fs_dread(iomanX_iop_file_t *file, iox_dirent_t *dirent)
     return rdbuf[0x1]; //itr fd from mmce
 }
 
+int mmce_fs_getstat(iomanX_iop_file_t *file, const char *name, iox_stat_t *stat)
+{
+    int res;
+
+    u8 wrbuf[0xFF];
+    u8 rdbuf[0x2B];
+
+    u8 len = strlen(name) + 1;
+
+    DPRINTF("%s filename: %s\n", __func__, name);
+
+    wrbuf[0x0] = MMCE_ID;               //Identifier
+    wrbuf[0x1] = MMCE_CMD_FS_GETSTAT;   //Command
+    wrbuf[0x2] = MMCE_RESERVED;         //Reserved
+
+    mmce_sio2_lock();
+
+    //Packet #1: Command and padding
+    res = mmce_sio2_send(0x4, 0x4, wrbuf, rdbuf);
+    if (res == -1) {
+        DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
+        mmce_sio2_unlock();
+        return -1;
+    }
+
+    if (rdbuf[0x1] != MMCE_REPLY_CONST) {
+        DPRINTF("%s ERROR: Invalid response from card. Got 0x%x, Expected 0x%x\n", __func__, rdbuf[0x1], MMCE_REPLY_CONST);
+        mmce_sio2_unlock();
+        return -1;
+    }
+
+    //Packet #2: Filename 
+    res = mmce_sio2_send(len, 0x0, name, NULL);
+    if (res == -1) {
+        DPRINTF("%s ERROR: P2 - Timedout waiting for /ACK\n", __func__);
+        mmce_sio2_unlock();
+        return -1;
+    }
+
+    //Packet #n + 1: io_stat_t and term
+    res = mmce_sio2_send(0x0, 0x2b, NULL, rdbuf);
+    if (res == -1) {
+        DPRINTF("%s ERROR: P4 - Timedout waiting for /ACK\n", __func__);
+        mmce_sio2_unlock();
+        return -1;
+    }
+
+    mmce_sio2_unlock();
+
+    //Could cast but not sure about alignment?
+    stat->mode  = rdbuf[0x1] << 24;
+    stat->mode |= rdbuf[0x2] << 16;
+    stat->mode |= rdbuf[0x3] << 8;
+    stat->mode |= rdbuf[0x4];
+
+    stat->attr  = rdbuf[0x5] << 24;
+    stat->attr |= rdbuf[0x6] << 16;
+    stat->attr |= rdbuf[0x7] << 8;
+    stat->attr |= rdbuf[0x8];
+
+    stat->size  = rdbuf[0x9] << 24;
+    stat->size |= rdbuf[0xA] << 16;
+    stat->size |= rdbuf[0xB] << 8;
+    stat->size |= rdbuf[0xC];
+
+    stat->ctime[0] = rdbuf[0xD];
+    stat->ctime[1] = rdbuf[0xE];
+    stat->ctime[2] = rdbuf[0xF];
+    stat->ctime[3] = rdbuf[0x10];
+    stat->ctime[4] = rdbuf[0x11];
+    stat->ctime[5] = rdbuf[0x12];
+    stat->ctime[6] = rdbuf[0x13];
+    stat->ctime[7] = rdbuf[0x14];
+
+    stat->atime[0] = rdbuf[0x15];
+    stat->atime[1] = rdbuf[0x16];
+    stat->atime[2] = rdbuf[0x17];
+    stat->atime[3] = rdbuf[0x18];
+    stat->atime[4] = rdbuf[0x19];
+    stat->atime[5] = rdbuf[0x1A];
+    stat->atime[6] = rdbuf[0x1B];
+    stat->atime[7] = rdbuf[0x1C];
+
+    stat->mtime[0] = rdbuf[0x1D];
+    stat->mtime[1] = rdbuf[0x1E];
+    stat->mtime[2] = rdbuf[0x1F];
+    stat->mtime[3] = rdbuf[0x20];
+    stat->mtime[4] = rdbuf[0x21];
+    stat->mtime[5] = rdbuf[0x22];
+    stat->mtime[6] = rdbuf[0x23];
+    stat->mtime[7] = rdbuf[0x24];
+
+    stat->hisize  = rdbuf[0x25] << 24;
+    stat->hisize |= rdbuf[0x26] << 16;
+    stat->hisize |= rdbuf[0x27] << 8;
+    stat->hisize |= rdbuf[0x28];
+
+    if (rdbuf[0x29] != 0) {
+        DPRINTF("Got bad return: %i\n", rdbuf[0x29]);
+        return -1;
+    } else {
+        DPRINTF("Got good return\n");
+    }
+
+    return 0;
+}
+
 s64 mmce_fs_lseek64(iomanX_iop_file_t *file, s64 offset, int whence)
 {
     int res;
     s64 position = -1;
 
-    u8 wrbuf[0xf];
-    u8 rdbuf[0xf];
+    u8 wrbuf[0xd];
+    u8 rdbuf[0x16];
 
     DPRINTF("%s fd: %i, whence: %i\n", __func__, (u8)*(int*)file->privdata, whence);
     DPRINTF("offset: %lli\n",  offset);
-
-    //Reserved fd
-    if (*(int*)file->privdata >= 250) {
-        return 0;
-    }
 
     wrbuf[0x0] = MMCE_ID;                       //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_LSEEK64;           //Command
@@ -1030,57 +892,31 @@ s64 mmce_fs_lseek64(iomanX_iop_file_t *file, s64 offset, int whence)
     wrbuf[0xa] = (offset & 0x000000000000FF00) >> 8;
     wrbuf[0xb] = (offset & 0x00000000000000FF);
     wrbuf[0xc] = (u8)(whence);  //Whence
-    
-    mmce_sio2_lock();
 
     //Packet #1: Command, file descriptor, offset, and whence
-    res = mmce_sio2_send(0xe, 0xe, wrbuf, rdbuf);
+    mmce_sio2_lock();
+    res = mmce_sio2_send(0xd, 0x16, wrbuf, rdbuf);
+    mmce_sio2_unlock();
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
-        mmce_sio2_unlock();
         return -1;
     }
 
     if (rdbuf[0x1] != MMCE_REPLY_CONST) {
         DPRINTF("%s ERROR: Invalid response from card. Got 0x%x, Expected 0x%x\n", __func__, rdbuf[0x1], MMCE_REPLY_CONST);
-        mmce_sio2_unlock();
         return -1;
     }
 
-    if (rdbuf[0xd] != 0) {
-        DPRINTF("%s ERROR: Returned %i, Expected 0\n", __func__, rdbuf[0xd]);
-        mmce_sio2_unlock();
-        return -1;
-    }
+    position  = (s64)rdbuf[0xd] << 56;
+    position |= (s64)rdbuf[0xe] << 48;
+    position |= (s64)rdbuf[0xf] << 40;
+    position |= (s64)rdbuf[0x10] << 32;
+    position |= (s64)rdbuf[0x11] << 24;
+    position |= (s64)rdbuf[0x12] << 16;
+    position |= (s64)rdbuf[0x13] << 8;
+    position |= (s64)rdbuf[0x14];
 
-    //Packet #2 - n: Polling ready
-    res = mmce_sio2_wait_equal(1, MMCE_FS_WAIT_TIMEOUT);
-    if (res == -1) {
-        DPRINTF("%s ERROR: P2 - Polling timedout\n", __func__);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
-    //Packet #n + 1: Position
-    res = mmce_sio2_send(0x0, 0xA, NULL, rdbuf);
-    if (res == -1) {
-        DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
-    mmce_sio2_unlock();
-
-    position  = (s64)rdbuf[0x1] << 56;
-    position |= (s64)rdbuf[0x2] << 48;
-    position |= (s64)rdbuf[0x3] << 40;
-    position |= (s64)rdbuf[0x4] << 32;
-    position |= (s64)rdbuf[0x5] << 24;
-    position |= (s64)rdbuf[0x6] << 16;
-    position |= (s64)rdbuf[0x7] << 8;
-    position |= (s64)rdbuf[0x8];
-
-    DPRINTF("%s position %llu\n", __func__, position);
+    DPRINTF("%s position %lli\n", __func__, position);
 
     return position;
 }
@@ -1089,16 +925,58 @@ int mmce_fs_devctl(iomanX_iop_file_t *fd, const char *name, int cmd, void *arg, 
 {
     int res = 0;
 
-    DPRINTF("%s cmd: %i, arg %i, buflen: %i\n", __func__, cmd, *(u32*)arg, buflen);
+    int type;
+    int mode;
+    int num;
 
-    switch (cmd)
-    {
-    case MMCE_CMD_IOCTL_GET_PORT:
-        *(s32*)buf = mmce_sio2_get_port();
-    break;
-    
-    default:
-    break;
+    int args;
+
+    DPRINTF("%s cmd: %i, arglen, buflen: %i\n", __func__, cmd, arglen, buflen);
+
+    switch (cmd) {
+        case MMCE_CMD_PING:
+            res = mmce_cmd_ping();
+        break;
+
+        case MMCE_CMD_GET_STATUS:
+            res = mmce_cmd_get_status();
+        break;
+        
+        case MMCE_CMD_GET_CARD:
+            res = mmce_cmd_get_card();
+        break;
+
+        case MMCE_CMD_SET_CARD:
+            args = *(u32*)arg;
+            type = (args & 0xff000000) >> 24;
+            mode = (args & 0x00ff0000) >> 16;
+            num  = (args & 0x0000ffff);
+
+            res = mmce_cmd_set_card(type, mode, num);
+        break;
+        
+        case MMCE_CMD_GET_CHANNEL:
+            res = mmce_cmd_get_channel();
+        break;
+
+        case MMCE_CMD_SET_CHANNEL:
+            args = *(u32*)arg;
+            mode = (args & 0x00ff0000) >> 16;
+            num  = (args & 0x0000ffff);
+            res = mmce_cmd_set_channel(mode, num);
+        break;
+
+        case MMCE_CMD_GET_GAMEID:
+            res = mmce_cmd_get_gameid(buf);
+        break;
+
+        case MMCE_CMD_SET_GAMEID:
+            char *str = (char*)arg;
+            res = mmce_cmd_set_gameid(str);
+        break;
+
+        default:
+        break;    
     }
 
     return res;
@@ -1121,7 +999,7 @@ static iomanX_iop_device_ops_t mmce_fio_ops =
 	&mmce_fs_dopen,   //dopen
 	&mmce_fs_dclose,  //dclose
 	&mmce_fs_dread,   //dread
-	NOT_SUPPORTED_OP, //getstat
+	&mmce_fs_getstat, //getstat
 	NOT_SUPPORTED_OP, //chstat
     //EXTENDED OPS
     NOT_SUPPORTED_OP, //rename
@@ -1130,7 +1008,7 @@ static iomanX_iop_device_ops_t mmce_fio_ops =
     NOT_SUPPORTED_OP, //mount
     NOT_SUPPORTED_OP, //umount
     &mmce_fs_lseek64, //lseek64
-    &mmce_fs_devctl,  //devctl TODO: replace reserved game fd, with devctl or ioctl2
+    &mmce_fs_devctl,  //devctl
     NOT_SUPPORTED_OP, //symlink
     NOT_SUPPORTED_OP, //readlink
     NOT_SUPPORTED_OP, //ioctl2

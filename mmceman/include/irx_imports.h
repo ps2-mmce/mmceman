@@ -20,6 +20,7 @@
 #include "intrman.h"
 #include "iomanX.h"
 #include "loadcore.h"
+#include "thbase.h"
 #include "thevent.h"
 #include "thsemap.h"
 #include "stdio.h"

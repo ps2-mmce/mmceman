@@ -168,6 +168,13 @@ int mmcedrv_read_sector(int fd, u32 sector, u32 count, void *buffer)
     return sectors_read;
 }
 
+
+//Called through CDVDMAN MMCE Device
+void mmcedrv_set_port(int port)
+{
+    mmce_sio2_set_port(port);
+}
+
 int __start(int argc, char *argv[])
 {
     int rv;
@@ -186,8 +193,10 @@ int __start(int argc, char *argv[])
         return MODULE_NO_RESIDENT_END;
     }
 
+    mmce_sio2_set_port(3);
+
     //Set port
-    mmce_sio2_set_port(config.port);
+    //mmce_sio2_set_port(config.port);
 
     //Register exports
     if (RegisterLibraryEntries(&_exp_mmcedrv) != 0) {

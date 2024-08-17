@@ -15,6 +15,7 @@ iomanX_IMPORTS_end
 intrman_IMPORTS_start
 I_DisableIntr
 I_EnableIntr
+I_GetIntrmanInternalData
 I_RegisterIntrHandler
 I_ReleaseIntrHandler
 I_CpuSuspendIntr
@@ -37,12 +38,11 @@ I_strcpy
 I_strcmp
 sysclib_IMPORTS_end
 
-thsemap_IMPORTS_start
-I_CreateSema
-I_WaitSema
-I_SignalSema
-I_DeleteSema
-thsemap_IMPORTS_end
+thbase_IMPORTS_start
+I_SetAlarm
+I_CancelAlarm
+I_USec2SysClock
+thbase_IMPORTS_end
 
 thevent_IMPORTS_start
 I_CreateEventFlag
@@ -52,3 +52,10 @@ I_iSetEventFlag
 I_ClearEventFlag
 I_WaitEventFlag
 thevent_IMPORTS_end
+
+thsemap_IMPORTS_start
+I_CreateSema
+I_WaitSema
+I_SignalSema
+I_DeleteSema
+thsemap_IMPORTS_end
