@@ -91,8 +91,11 @@ int mmce_sio2_init()
     sceEnableDMAChannel(IOP_DMAC_SIO2in);
     sceEnableDMAChannel(IOP_DMAC_SIO2out);
 
-    //1s
-    USec2SysClock(1000000, &timeout_single_transfer);
+    //500ms
+    USec2SysClock(500000, &timeout_single_transfer);
+
+    //2s
+    USec2SysClock(2000000, &timeout_multi_transfer);
 
     return 0;
 }
@@ -219,19 +222,22 @@ int mmce_sio2_send(u8 in_size, u8 out_size, u8 *in_buf, u8 *out_buf)
     //Start transfer
     inl_sio2_ctrl_set(inl_sio2_ctrl_get() | 1);
 
-    //Wait for transfer to complete
+    //Set timeout alarm
     SetAlarm(&timeout_single_transfer, mmce_sio2_timeout_handler, &event_flag);
 
+    //Wait for completetion or timeout
     WaitEventFlag(event_flag, EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE, 1, &resbits);
     if (resbits & EF_SIO2_TRANSFER_TIMEOUT) {
         DPRINTF("Detected transfer timeout, attempting to reset SIO2\n");
-        inl_sio2_ctrl_set(0x3bc); //Reset SIO2
+        inl_sio2_ctrl_set(0x3ac); //Reset SIO2
         ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
         return -1;
     } else {
+        //Cancel timeout alarm
         CancelAlarm(mmce_sio2_timeout_handler,  &event_flag);
     }
     
+    //Clear flags
     ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
 
     //Copy data out of RX FIFO
@@ -308,6 +314,8 @@ int mmce_sio2_read_raw_dma(u32 size, u8 *buffer)
 
 int mmce_sio2_read_raw(u32 size, u8 *buffer)
 {
+    u32 resbits;
+
     //dma element count (round down)
     u32 elements = size / 256;
 
@@ -384,8 +392,23 @@ int mmce_sio2_read_raw(u32 size, u8 *buffer)
         //Start the transfer
         inl_sio2_ctrl_set(inl_sio2_ctrl_get() | 1);
 
-        WaitEventFlag(event_flag, EF_SIO2_INTR_COMPLETE, 0, NULL);
-	    ClearEventFlag(event_flag, ~EF_SIO2_INTR_COMPLETE);
+        //Set timeout alarm
+        SetAlarm(&timeout_multi_transfer, mmce_sio2_timeout_handler, &event_flag);
+
+        //Wait for completetion or timeout
+        WaitEventFlag(event_flag, EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE, 1, &resbits);
+        if (resbits & EF_SIO2_TRANSFER_TIMEOUT) {
+            DPRINTF("Detected transfer timeout, attempting to reset SIO2\n");
+            inl_sio2_ctrl_set(0x3ac); //Reset SIO2
+            ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
+            return -1;
+        } else {
+            //Cancel timeout alarm
+            CancelAlarm(mmce_sio2_timeout_handler,  &event_flag);
+        }
+        
+        //Clear flags
+        ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
 
         elements -= elements_do;
     }

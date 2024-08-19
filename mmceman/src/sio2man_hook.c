@@ -44,83 +44,139 @@ static void _sio2_transfer_init(psio2_transfer_init init_func)
 // Generic sio2man transfer function
 static int _sio2_transfer(psio2_transfer transfer_func, sio2_transfer_data_t *td)
 {
-    int rv, i;
-
+    int rv;
+ 
     //DPRINTF("%s\n", __FUNCTION__);
 
-    /* Not needed with sd2psx / mc pro
-    // Do not allow transfers to/from our used port
-    for (i = 0; i < 16; i++) {
-        // Last transfer, we're ok.
+#ifdef LOG_MC_ACCESS
+    int McPort = 0;
+    int baud_div[0x2];
+
+    for (int i = 0; i < 16; i++) {
+        // Last transfer
         if (td->regdata[i] == 0)
             break;
 
-        // Wrong port, abort.
-        if ((td->regdata[i] & 3) == PORT_NR)
-            return 1;
-    }*/
+        // Memory Card
+        if ((td->regdata[i] & 3) == 2)
+            McPort = 2;
+
+        if ((td->regdata[i] & 3) == 3)
+            McPort = 3;
+    }
 
     //Dump memory card transfers
-    /*
-    if (td->port == 3) {
-        if (td->in_size != 0) {
-            DPRINTF("SEND:");
-            for (int i = 0; i < td->in_size; i++) {
-                printf("0x%.2x, ", td->in[i]);
-            }
-            printf("\n");
-        }
-
-        if (td->in_dma.count != 0 && td->in_dma.addr != NULL && td->in_dma.size != 0) {
-            DPRINTF("DMA size: %i\n", td->in_dma.size);
-            DPRINTF("DMA count: %i\n", td->in_dma.count);
-            DPRINTF("DMA OUT: %i\n", ((td->in_dma.size << 2) * (td->in_dma.count)));
-            
-            DPRINTF("SEND:\n");
-            u8 *in_buff = td->in_dma.addr;
-            for (int i = 0; i < ((td->in_dma.size << 2) * (td->in_dma.count)); i++) {
-                printf("0x%.2x, ", in_buff[i]);
-            }
-            printf("\n");
-        }
-
+    if (McPort != 0) {
+        DPRINTF("======MC TRANSFER ON PORT %i START======\n", McPort);
         WaitSema(lock_sema2);
         rv = transfer_func(td);
-        
-        if (td->out_size != 0) {
-            DPRINTF("RECV:");
-            for (int i = 0; i < td->out_size; i++) {
-                printf("0x%.2x, ", td->out[i]);
-            }
-            printf("\n");
+
+        baud_div[0] = (td->port_ctrl1[McPort] & 0xFF0000) >> 16;
+        baud_div[1] = (td->port_ctrl1[McPort] & 0xFF000000) >> 24;
+
+        for (int i = 0; i < 16; i++) {
+            if (td->regdata[i] == 0)
+                break;
+
+            DPRINTF("Transfer Element %i Baud Div: 0x%x\n", i, baud_div[((td->regdata[i] & 0x40000000) >> 30)]);
         }
 
-        if (td->out_dma.count != 0 && td->out_dma.addr != NULL && td->out_dma.size != 0) {
-            DPRINTF("DMA size: %i\n", td->out_dma.size);
-            DPRINTF("DMA count: %i\n", td->out_dma.count);
-            DPRINTF("DMA IN: %i\n", ((td->out_dma.size << 2) * (td->out_dma.count)));
-            
-            DPRINTF("RECV:\n");
-            u8 *out_buff = td->out_dma.addr;
-            for (int i = 0; i < ((td->out_dma.size << 2) * (td->out_dma.count)); i++) {
-                printf("0x%.2x, ", out_buff[i]);
+        //Formatted
+        if (td->in_size == td->out_size && td->in_size != 0) {
+            printf("\tSend: Recv:\n");
+
+            for (int i = 0; i < td->in_size; i++) {
+                printf("Byte %i: 0x%.2x, 0x%.2x\n", i, td->in[i], td->out[i]);
             }
             printf("\n");
+        
+        //Unformatted dump
+        } else {
+            if (td->in_size != 0) {
+                printf("Send:");
+                for (int i = 0; i < td->in_size; i++) {
+                    printf("0x%.2x, ", td->in[i]);
+                    if (((i + 1) % 8) == 0)
+                        printf("\n");
+                }
+                printf("\n");
+            }
+
+            if (td->out_size != 0) {
+                printf("Recv:");
+                for (int i = 0; i < td->out_size; i++) {
+                    printf("0x%.2x, ", td->out[i]);
+                    if (((i + 1) % 8) == 0)
+                        printf("\n");
+                }
+                printf("\n");
+            }
+        }
+
+        //Formatted 
+        if ((td->in_dma.count == td->out_dma.count) && (td->in_dma.size == td->out_dma.size) && td->in_dma.addr != NULL && td->out_dma.addr != NULL) {
+            printf("DMA size: %i\n", td->in_dma.size);
+            printf("DMA count: %i\n", td->in_dma.count);
+            printf("DMA bytes: %i\n", ((td->in_dma.size << 2) * (td->in_dma.count)));
+
+            u8 *in_buff = td->in_dma.addr;
+            u8 *out_buff = td->out_dma.addr;
+
+            printf(" (DMA) Send: Recv:\n");
+            for (int i = 0; i < ((td->in_dma.size << 2) * (td->in_dma.count)); i++) {
+                printf("Byte %i: 0x%.2x, 0x%.2x\n", i, in_buff[i], out_buff[i]);
+            }
+        //Unformatted dump
+        } else {
+            if (td->in_dma.count != 0 && td->in_dma.addr != NULL && td->in_dma.size != 0) {
+                printf("DMA size: %i\n", td->in_dma.size);
+                printf("DMA count: %i\n", td->in_dma.count);
+                printf("DMA Out: %i\n", ((td->in_dma.size << 2) * (td->in_dma.count)));
+                
+                printf("Send DMA:\n");
+                u8 *in_buff = td->in_dma.addr;
+                for (int i = 0; i < ((td->in_dma.size << 2) * (td->in_dma.count)); i++) {
+                    printf("0x%.2x, ", in_buff[i]);
+                    if (((i + 1) % 8) == 0)
+                        printf("\n");
+                }
+                printf("\n");
+            }
+            
+            if (td->out_dma.count != 0 && td->out_dma.addr != NULL && td->out_dma.size != 0) {
+                printf("DMA size: %i\n", td->out_dma.size);
+                printf("DMA count: %i\n", td->out_dma.count);
+                printf("DMA In: %i\n", ((td->out_dma.size << 2) * (td->out_dma.count)));
+                
+                printf("Recv:\n");
+                u8 *out_buff = td->out_dma.addr;
+                for (int i = 0; i < ((td->out_dma.size << 2) * (td->out_dma.count)); i++) {
+                    printf("0x%.2x, ", out_buff[i]);
+                    if (((i + 1) % 8) == 0)
+                        printf("\n");
+                }
+                printf("\n");
+            }
         }
 
         if ((td->stat6c & 0x8000) != 0) {
-            DPRINTF("Timeout detected\n");
+            printf("Timeout detected\n");
         }
+
+        DPRINTF("======END======\n");
+        
         SignalSema(lock_sema2);
     } else {
         WaitSema(lock_sema2);
         rv = transfer_func(td);
         SignalSema(lock_sema2);
-    }*/
+    }
 
+#else
     WaitSema(lock_sema2);
     rv = transfer_func(td);
     SignalSema(lock_sema2);
+#endif
 
     return rv;
 }

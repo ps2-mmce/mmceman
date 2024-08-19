@@ -7,9 +7,9 @@
 #include "irx_imports.h"
 
 #include "mmce_cmds.h"
-#include "mmcedrv_config.h"
 #include "mmce_fs.h"
 #include "mmce_sio2.h"
+#include "mmcedrv_config.h"
 
 #include "module_debug.h"
 
@@ -18,80 +18,65 @@
 
 IRX_ID(MODNAME, MAJOR, MINOR);
 
-struct mmcedrv_config config = {MODULE_SETTINGS_MAGIC};
+struct mmcedrv_config config = {MODULE_SETTINGS_MAGIC}; //For Neutrino
 extern struct irx_export_table _exp_mmcedrv;
 
-s64 mmcedrv_get_size(int fd)
+static int mmcedrv_iso_fd;
+static int mmcedrv_vmc_fd;
+
+s64 mmcedrv_get_size()
 {
     int res;
-    s64 position = 0;
+    s64 position = -1;
 
-    u8 wrbuf[0xe];
-    u8 rdbuf[0xe];
+    u8 wrbuf[0xd];
+    u8 rdbuf[0x16];
 
-    memset(wrbuf, 0, 0xd);
-    
-    wrbuf[0x0] = MMCE_ID;               //Identifier
-    wrbuf[0x1] = MMCE_CMD_FS_LSEEK64;   //Command
-    wrbuf[0x2] = MMCE_RESERVED;         //Reserved
-    wrbuf[0x3] = fd;                    //File descriptor
-    wrbuf[0xc] = 2;                     //whence, SEEK_END
+    wrbuf[0x0] = MMCE_ID;                       //Identifier
+    wrbuf[0x1] = MMCE_CMD_FS_LSEEK64;           //Command
+    wrbuf[0x2] = MMCE_RESERVED;                 //Reserved
+    wrbuf[0x3] = mmcedrv_iso_fd;                //ISO file descriptor
 
-    mmce_sio2_lock();
+    wrbuf[0x4] = 0;   //Offset
+    wrbuf[0x5] = 0;
+    wrbuf[0x6] = 0;
+    wrbuf[0x7] = 0;
+    wrbuf[0x8] = 0;
+    wrbuf[0x9] = 0;
+    wrbuf[0xa] = 0;
+    wrbuf[0xb] = 0;
+
+    wrbuf[0xc] = 2; //Whence SEEK_END
 
     //Packet #1: Command, file descriptor, offset, and whence
-    res = mmce_sio2_send(0xe, 0xe, wrbuf, rdbuf);
+    mmce_sio2_lock();
+    res = mmce_sio2_send(0xd, 0x16, wrbuf, rdbuf);
+    mmce_sio2_unlock();
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
-        mmce_sio2_unlock();
         return -1;
     }
 
     if (rdbuf[0x1] != MMCE_REPLY_CONST) {
         DPRINTF("%s ERROR: Invalid response from card. Got 0x%x, Expected 0x%x\n", __func__, rdbuf[0x1], MMCE_REPLY_CONST);
-        mmce_sio2_unlock();
         return -1;
     }
 
-    if (rdbuf[0xd] != 0) {
-        DPRINTF("%s ERROR: Returned %i, Expected 0\n", __func__, rdbuf[0xd]);
-        mmce_sio2_unlock();
-        return -1;
-    }
+    position  = (s64)rdbuf[0xd] << 56;
+    position |= (s64)rdbuf[0xe] << 48;
+    position |= (s64)rdbuf[0xf] << 40;
+    position |= (s64)rdbuf[0x10] << 32;
+    position |= (s64)rdbuf[0x11] << 24;
+    position |= (s64)rdbuf[0x12] << 16;
+    position |= (s64)rdbuf[0x13] << 8;
+    position |= (s64)rdbuf[0x14];
 
-    //Packet #2 - n: Polling ready
-    res = mmce_sio2_wait_equal(1, 128000);
-    if (res == -1) {
-        DPRINTF("%s ERROR: P2 - Polling timedout\n", __func__);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
-    //Packet #n + 1: Position
-    res = mmce_sio2_send(0x0, 0xA, NULL, rdbuf);
-    if (res == -1) {
-        DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
-        mmce_sio2_unlock();
-        return -1;
-    }
-
-    mmce_sio2_unlock();
-
-    position  = (s64)rdbuf[0x1] << 56;
-    position |= (s64)rdbuf[0x2] << 48;
-    position |= (s64)rdbuf[0x3] << 40;
-    position |= (s64)rdbuf[0x4] << 32;
-    position |= (s64)rdbuf[0x5] << 24;
-    position |= (s64)rdbuf[0x6] << 16;
-    position |= (s64)rdbuf[0x7] << 8;
-    position |= (s64)rdbuf[0x8];
-
-    DPRINTF("%s position %llu\n", __func__, position);
+    DPRINTF("%s position %lli\n", __func__, position);
 
     return position;
 }
 
-int mmcedrv_read_sector(int fd, u32 sector, u32 count, void *buffer)
+int mmcedrv_read_sector(int type, u32 sector, u32 count, void *buffer)
 {
     int res;
     int sectors_read = 0;
@@ -99,12 +84,16 @@ int mmcedrv_read_sector(int fd, u32 sector, u32 count, void *buffer)
     u8 wrbuf[0xB];
     u8 rdbuf[0xB];
 
-    DPRINTF("%s fd: %i, starting sector: %i, count: %i\n", __func__, fd, sector, count);
+    DPRINTF("%s type: %i, starting sector: %i, count: %i\n", __func__, type, sector, count);
 
     wrbuf[0x0] = MMCE_ID;                 //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_READ_SECTOR; //Command
     wrbuf[0x2] = MMCE_RESERVED;           //Reserved
-    wrbuf[0x3] = fd;                      //File Descriptor    
+
+    if (type == 0)
+        wrbuf[0x3] = mmcedrv_iso_fd;    //ISO file Descriptor    
+    else
+        wrbuf[0x3] = mmcedrv_vmc_fd;    //VMC file Descriptor    
 
     wrbuf[0x4] = (sector & 0x00FF0000) >> 16;
     wrbuf[0x5] = (sector & 0x0000FF00) >> 8;
@@ -150,7 +139,6 @@ int mmcedrv_read_sector(int fd, u32 sector, u32 count, void *buffer)
     res = mmce_sio2_send(0x0, 0x5, wrbuf, rdbuf);
     if (res == -1) {
         DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
-        //printf("timeout\n");
         mmce_sio2_unlock();
         return -1;
     }
@@ -169,10 +157,30 @@ int mmcedrv_read_sector(int fd, u32 sector, u32 count, void *buffer)
 }
 
 
-//Called through CDVDMAN MMCE Device
-void mmcedrv_set_port(int port)
+//For OPL, called through CDVDMAN Device
+void mmcedrv_config_set(int setting, int value)
 {
-    mmce_sio2_set_port(port);
+    switch (setting) {
+        case MMCEDRV_SETTING_PORT:
+            if (value == 2 || value == 3)
+                mmce_sio2_set_port(value);
+            else
+                DPRINTF("Invalid port setting: %i\n", value);
+        break;
+        
+        case MMCEDRV_SETTING_ISO_FD:
+            if (value < 8)
+                mmcedrv_iso_fd = value;
+        break;
+        
+        case MMCEDRV_SETTING_VMC_FD:
+            if (value < 8)
+                mmcedrv_vmc_fd = value;
+        break;
+        
+        default:
+        break;
+    }
 }
 
 int __start(int argc, char *argv[])
@@ -181,11 +189,6 @@ int __start(int argc, char *argv[])
 
     printf("Multipurpose Memory Card Emulator Driver (MMCEDRV) v%d.%d\n", MAJOR, MINOR);
 
-    DPRINTF("Starting MMCEDRV with:\n");
-    DPRINTF("Port: %i\n", config.port);
-    DPRINTF("ISO fd: %i\n", config.iso_fd);
-    DPRINTF("VMC fd: %i\n", config.vmc_fd);
-
     //Install hooks
     rv = mmce_sio2_init();
     if (rv != 0) {
@@ -193,10 +196,15 @@ int __start(int argc, char *argv[])
         return MODULE_NO_RESIDENT_END;
     }
 
-    mmce_sio2_set_port(3);
+    //For Neutrino only, OPL uses config_set export atm
+    DPRINTF("Started with:\n");
+    DPRINTF("Port: %i\n", config.port);
+    DPRINTF("ISO fd: %i\n", config.iso_fd);
+    DPRINTF("VMC fd: %i\n", config.vmc_fd);
 
-    //Set port
-    //mmce_sio2_set_port(config.port);
+    mmce_sio2_set_port(config.port);
+    mmcedrv_iso_fd = config.iso_fd;
+    mmcedrv_vmc_fd = config.vmc_fd;
 
     //Register exports
     if (RegisterLibraryEntries(&_exp_mmcedrv) != 0) {

@@ -38,8 +38,7 @@ enum mmce_cmds_fs {
 };
 
 enum mmce_cmds_ioctl {
-    MMCE_CMD_IOCTL_PROBE_PORT = 0x80,
-    MMCE_CMD_IOCTL_GET_PORT = 0x81,
+    MMCE_CMD_IOCTL_GET_FD = 0x80,
 };
 
 //Called through ioctl

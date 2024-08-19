@@ -17,6 +17,7 @@ static int not_supported_operation() {
 }
 
 static int mmce_fs_fds[MMCE_FS_MAX_FD];
+static int last_unit = -1;
 
 static int *mmce_fs_find_free_handle(void) {
     for (int i = 0; i < MMCE_FS_MAX_FD; i++)
@@ -25,6 +26,26 @@ static int *mmce_fs_find_free_handle(void) {
             return &mmce_fs_fds[i];
     }
     return NULL;
+}
+
+//Check last used port, update if needed
+static int mmce_fs_update_unit(int unit)
+{
+    int port = 2;
+
+    if (unit != last_unit) {
+        if (unit == 0)
+            port = 2;
+        else if (unit == 1)
+            port = 3;
+
+        last_unit = unit;
+
+        DPRINTF("Unit changed, unit: %i port: %i\n", unit, port);
+        mmce_sio2_set_port(port);
+    }
+
+    return 0;
 }
 
 int mmce_fs_init(iomanX_iop_device_t *f)
@@ -47,6 +68,9 @@ int mmce_fs_open(iomanX_iop_file_t *file, const char *name, int flags, int mode)
     u8 rdbuf[0x3];
 
     DPRINTF("%s unit: %i name: %s flags: 0x%x\n", __func__, file->unit, name, flags);
+
+    //Update SIO2 port if unit changed ex mmce0: -> mmce1:
+    mmce_fs_update_unit(file->unit);
 
     //Make sure theres file handles available
     file->privdata = (int*)mmce_fs_find_free_handle();
@@ -122,6 +146,8 @@ int mmce_fs_close(iomanX_iop_file_t *file)
 
     DPRINTF("%s fd: %i\n", __func__, (u8)*(int*)file->privdata);
 
+    mmce_fs_update_unit(file->unit);
+
     //Reserved fds
     if (*(int*)file->privdata >= 250)
         return 0;
@@ -166,6 +192,8 @@ int mmce_fs_read(iomanX_iop_file_t *file, void *ptr, int size)
     u8 rdbuf[0xA];
 
     DPRINTF("%s fd: %i, size: %i\n", __func__, (u8)*(int*)file->privdata, size);
+
+    mmce_fs_update_unit(file->unit);
 
     wrbuf[0x0] = MMCE_ID;                   //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_READ;          //Command
@@ -240,6 +268,8 @@ int mmce_fs_write(iomanX_iop_file_t *file, void *ptr, int size)
 
     DPRINTF("%s fd: %i, size: %i\n", __func__, (u8)*(int*)file->privdata, size);
 
+    mmce_fs_update_unit(file->unit);
+
     wrbuf[0x0] = MMCE_ID;                   //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_WRITE;         //Command
     wrbuf[0x2] = MMCE_RESERVED;             //Reserved
@@ -313,6 +343,8 @@ int mmce_fs_lseek(iomanX_iop_file_t *file, int offset, int whence)
 
     DPRINTF("%s fd: %i, offset: %i, whence: %i\n", __func__, (u8)*(int*)file->privdata, offset, whence);
 
+    mmce_fs_update_unit(file->unit);
+
     wrbuf[0x0] = MMCE_ID;                       //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_LSEEK;             //Command
     wrbuf[0x2] = MMCE_RESERVED;                 //Reserved
@@ -350,16 +382,7 @@ int mmce_fs_lseek(iomanX_iop_file_t *file, int offset, int whence)
 
 int mmce_fs_ioctl(iomanX_iop_file_t *file, int cmd, void *data)
 {
-    int res = 0;
-
-    u8 type = 0;
-    u8 mode = 0;
-    u16 num = 0;
-
-    u32 args = *(u32*)data;
-    
-
-    return res;
+    return 0;
 }
 
 /*Note: Due to a bug in FILEIO, mkdir will be called after remove unless
@@ -372,6 +395,8 @@ int mmce_fs_remove(iomanX_iop_file_t *file, const char *name)
     u8 rdbuf[0x3];
 
     DPRINTF("%s name: %s\n", __func__, name);
+    
+    mmce_fs_update_unit(file->unit);
 
     u8 filename_len = strlen(name) + 1;
 
@@ -430,6 +455,8 @@ int mmce_fs_mkdir(iomanX_iop_file_t *file, const char *name, int flags)
 
     DPRINTF("%s name: %s\n", __func__, name);
 
+    mmce_fs_update_unit(file->unit);
+
     u8 dir_len = strlen(name) + 1;
 
     wrbuf[0x0] = MMCE_ID;            //Identifier
@@ -487,6 +514,8 @@ int mmce_fs_rmdir(iomanX_iop_file_t *file, const char *name)
 
     DPRINTF("%s name: %s\n", __func__, name);
 
+    mmce_fs_update_unit(file->unit);
+
     u8 dir_len = strlen(name) + 1;
 
     wrbuf[0x0] = MMCE_ID;            //Identifier
@@ -543,6 +572,8 @@ int mmce_fs_dopen(iomanX_iop_file_t *file, const char *name)
     u8 rdbuf[0x3];
 
     DPRINTF("%s name: %s\n", __func__, name);
+
+    mmce_fs_update_unit(file->unit);
 
     file->privdata = (int*)mmce_fs_find_free_handle();
 
@@ -610,6 +641,8 @@ int mmce_fs_dclose(iomanX_iop_file_t *file)
     u8 rdbuf[0x6];
  
     DPRINTF("%s fd: %i\n", __func__, (u8)*(int*)file->privdata);
+
+    mmce_fs_update_unit(file->unit);
     
     wrbuf[0x0] = MMCE_ID;                   //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_DCLOSE;        //Command
@@ -650,6 +683,8 @@ int mmce_fs_dread(iomanX_iop_file_t *file, iox_dirent_t *dirent)
     u8 rdbuf[0x2B];
 
     DPRINTF("%s fd: %i\n", __func__, (u8)*(int*)file->privdata);
+
+    mmce_fs_update_unit(file->unit);
 
     u8 filename_len = 0;
 
@@ -771,6 +806,8 @@ int mmce_fs_getstat(iomanX_iop_file_t *file, const char *name, iox_stat_t *stat)
 
     DPRINTF("%s filename: %s\n", __func__, name);
 
+    mmce_fs_update_unit(file->unit);
+
     wrbuf[0x0] = MMCE_ID;               //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_GETSTAT;   //Command
     wrbuf[0x2] = MMCE_RESERVED;         //Reserved
@@ -876,7 +913,8 @@ s64 mmce_fs_lseek64(iomanX_iop_file_t *file, s64 offset, int whence)
     u8 rdbuf[0x16];
 
     DPRINTF("%s fd: %i, whence: %i\n", __func__, (u8)*(int*)file->privdata, whence);
-    DPRINTF("offset: %lli\n",  offset);
+
+    mmce_fs_update_unit(file->unit);
 
     wrbuf[0x0] = MMCE_ID;                       //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_LSEEK64;           //Command
@@ -916,8 +954,6 @@ s64 mmce_fs_lseek64(iomanX_iop_file_t *file, s64 offset, int whence)
     position |= (s64)rdbuf[0x13] << 8;
     position |= (s64)rdbuf[0x14];
 
-    DPRINTF("%s position %lli\n", __func__, position);
-
     return position;
 }
 
@@ -932,6 +968,8 @@ int mmce_fs_devctl(iomanX_iop_file_t *fd, const char *name, int cmd, void *arg, 
     int args;
 
     DPRINTF("%s cmd: %i, arglen, buflen: %i\n", __func__, cmd, arglen, buflen);
+
+    mmce_fs_update_unit(fd->unit);
 
     switch (cmd) {
         case MMCE_CMD_PING:
@@ -982,6 +1020,21 @@ int mmce_fs_devctl(iomanX_iop_file_t *fd, const char *name, int cmd, void *arg, 
     return res;
 }
 
+int mmce_fs_ioctl2(iomanX_iop_file_t *file, int cmd, void *arg, unsigned int arglen, void *data, unsigned int datalen)
+{
+    int res = 0;
+
+    switch(cmd) {
+        //TEMP: Used to get iop side fd of a file
+        case MMCE_CMD_IOCTL_GET_FD:
+            res = (u8)*(int*)file->privdata;
+        break;
+        default:
+    }
+
+    return res;
+}
+
 static iomanX_iop_device_ops_t mmce_fio_ops =
 {
 	&mmce_fs_init,    //init
@@ -1011,7 +1064,7 @@ static iomanX_iop_device_ops_t mmce_fio_ops =
     &mmce_fs_devctl,  //devctl
     NOT_SUPPORTED_OP, //symlink
     NOT_SUPPORTED_OP, //readlink
-    NOT_SUPPORTED_OP, //ioctl2
+    &mmce_fs_ioctl2, //ioctl2
 };
 
 static iomanX_iop_device_t mmce_dev =

@@ -1,6 +1,8 @@
 IOP_SRC_DIR ?= src/
 IOP_INC_DIR ?= include/
 
+### LOG_MC
+
 ifeq ($(MMCEDRV), 1)
   $(info -- MMCEDRV)
   #Build minimal MMCE driver for use in-game
