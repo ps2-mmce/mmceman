@@ -16,76 +16,60 @@
 #define MAJOR 2
 #define MINOR 1
 
-IRX_ID(MODNAME, MAJOR, MINOR);
+IRX_ID("mmceman", MAJOR, MINOR);
 
-//TODO: Temporary until 'mmce1:' and 'mmce2:' are implemented
-static int auto_detect_port()
+static void mmce_init(int port)
 {
-    int card_info = -1;
+    int res = -1;
 
-    mmce_sio2_set_port(2);
-    for (int i = 0; i < 3; i++) {
-        card_info = mmce_cmd_ping();
-        if (card_info != -1) {
-            DPRINTF("Found card in port 2\n");
-            
-            if (((card_info & 0xFF00) >> 8) == 1) {
+    mmce_sio2_set_port(port);
+
+    for (int i = 0; i < 6; i++) {
+        res = mmce_cmd_ping();
+        if (res != -1) {
+            DPRINTF("Found card in port %i\n", port);
+
+            if (((res & 0xFF00) >> 8) == 1) {
                 DPRINTF("Product id: 1 (SD2PSX)\n");
-            } else if (((card_info & 0xFF00) >> 8) == 2) {
+            } else if (((res & 0xFF00) >> 8) == 2) {
                 DPRINTF("Product id: 2 (MemCard PRO2)\n");
             } else {
-                DPRINTF("Product id: %i (unknown)\n", ((card_info & 0xFF00) >> 8));
+                DPRINTF("Product id: %i (unknown)\n", ((res & 0xFF00) >> 8));
             }
-            
-            DPRINTF("Revision id: %i\n", (card_info & 0xFF));
-            DPRINTF("Protocol Version: %i\n", (card_info & 0xFF0000) >> 16);
 
-            return 0;
+            DPRINTF("Revision id: %i\n", (res & 0xFF));
+            DPRINTF("Protocol Version: %i\n", (res & 0xFF0000) >> 16);
+
+            /*
+            DPRINTF("Resetting MMCE FS...");
+
+            res = mmce_cmd_fs_reset();
+            if (res != 0) 
+                DPRINTF("Failed: %i\n", res);
+            else
+                DPRINTF("Okay\n");*/
+
+            break;
         }
     }
-
-    mmce_sio2_set_port(3);
-    for (int i = 0; i < 3; i++) {
-        card_info = mmce_cmd_ping();
-        if (card_info != -1) {
-            DPRINTF("Found card in port 3\n");
-            
-            if (((card_info & 0xFF00) >> 8) == 1) {
-                DPRINTF("Product id: 1 (SD2PSX)\n");
-            } else if (((card_info & 0xFF00) >> 8) == 2) {
-                DPRINTF("Product id: 2 (MemCard PRO2)\n");
-            } else {
-                DPRINTF("Product id: %i (unknown)\n", ((card_info & 0xFF00) >> 8));
-            }
-            
-            DPRINTF("Revision id: %i\n", (card_info & 0xFF));
-            DPRINTF("Protocol Version: %i\n", (card_info & 0xFF0000) >> 16);
-
-            return 0;
-        }
-    }
-
-    DPRINTF("Failed to find MMCE in either port\n");
-    return -1;
 }
 
 int __start(int argc, char *argv[])
 {
     int rv;
-    
+
     printf("Multipurpose Memory Card Emulator Manager (MMCEMAN) v%d.%d by bbsan2k, El_isra, and qnox32\n", MAJOR, MINOR);
 
     //Install hooks
     rv = mmce_sio2_init();
     if (rv != 0) {
-        DPRINTF("mmce_sio2_init failed, rv %i\n", rv);
+        DPRINTF("%s: mmce_sio2_init failed, rv %i\n", __func__, rv);
         return MODULE_NO_RESIDENT_END;
     }
 
-    //TEMP: until 'mmce1:' and 'mmce2:' are implemented
-    //auto_detect_port();
-
-    mmce_sio2_set_port(3);
+    //Try to init MMCE's on both ports
+    mmce_init(2);
+    mmce_init(3);
 
     //Attach filesystem to iomanX
     mmce_fs_register();

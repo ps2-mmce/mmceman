@@ -35,13 +35,14 @@ enum mmce_cmds_fs {
     MMCE_CMD_FS_CHSTAT = 0x4d,
     MMCE_CMD_FS_LSEEK64 = 0x53,
     MMCE_CMD_FS_READ_SECTOR = 0x58,
+    MMCE_CMD_FS_RESET = 0x59,
 };
 
 enum mmce_cmds_ioctl {
     MMCE_CMD_IOCTL_GET_FD = 0x80,
 };
 
-//Called through ioctl
+//Called through devctl
 int mmce_cmd_ping(void);
 int mmce_cmd_get_status(void);
 int mmce_cmd_get_card(void);
@@ -50,5 +51,5 @@ int mmce_cmd_get_channel(void);
 int mmce_cmd_set_channel(u8 mode, u16 num);
 int mmce_cmd_get_gameid(void *ptr);
 int mmce_cmd_set_gameid(void *ptr);
-
+int mmce_cmd_fs_reset(void);
 #endif

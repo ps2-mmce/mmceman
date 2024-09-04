@@ -34,9 +34,9 @@ void *sio2man_intr_arg_ptr;
 int (*mmce_sio2_intr_handler_ptr)(void *arg) = NULL;
 void *mmce_sio2_intr_arg_ptr = NULL;
 
-
-static iop_sys_clock_t timeout_single_transfer;
-static iop_sys_clock_t timeout_multi_transfer;
+iop_sys_clock_t timeout_200ms;
+iop_sys_clock_t timeout_500ms;
+iop_sys_clock_t timeout_2s;
 
 int mmce_sio2_intr_handler(void *arg)
 {
@@ -91,11 +91,14 @@ int mmce_sio2_init()
     sceEnableDMAChannel(IOP_DMAC_SIO2in);
     sceEnableDMAChannel(IOP_DMAC_SIO2out);
 
+    //200ms
+    USec2SysClock(200000, &timeout_200ms);
+
     //500ms
-    USec2SysClock(500000, &timeout_single_transfer);
+    USec2SysClock(500000, &timeout_500ms);
 
     //2s
-    USec2SysClock(2000000, &timeout_multi_transfer);
+    USec2SysClock(2000000, &timeout_2s);
 
     return 0;
 }
@@ -154,17 +157,19 @@ void mmce_sio2_lock()
     //Swap SIO2MAN's intr handler with ours
     CpuSuspendIntr(&state);
 
+    DisableIntr(IOP_IRQ_DMA_SIO2_OUT, &res);
+    DisableIntr(IOP_IRQ_DMA_SIO2_IN, &res);
+
     DisableIntr(IOP_IRQ_SIO2, &res);
     ReleaseIntrHandler(IOP_IRQ_SIO2);
 
     RegisterIntrHandler(IOP_IRQ_SIO2, 1, mmce_sio2_intr_handler, &event_flag);
-	EnableIntr(IOP_IRQ_SIO2);
+    EnableIntr(IOP_IRQ_SIO2);
 
     CpuResumeIntr(state);
 
     //Copy port ctrl settings to SIO2 registers
     mmce_sio2_reg_set_pctrl();
-
 }
 
 void mmce_sio2_unlock()
@@ -184,16 +189,20 @@ void mmce_sio2_unlock()
         RegisterIntrHandler(IOP_IRQ_SIO2, 1, sio2man_intr_handler_ptr, sio2man_intr_arg_ptr);
         EnableIntr(IOP_IRQ_SIO2);
     }
-    
+
+    DisableIntr(IOP_IRQ_DMA_SIO2_OUT, &res);
+    DisableIntr(IOP_IRQ_DMA_SIO2_IN, &res);
+
     CpuResumeIntr(state);
 
-    /* unlock sio2man driver */
-    sio2man_hook_sio2_unlock();
+    //Restore ctrl state, and reset STATE + FIFOS
+    inl_sio2_ctrl_set(sio2_save_ctrl | 0xc);
 
+    //Unlock sio2man driver
+    sio2man_hook_sio2_unlock();
 }
 
-
-int mmce_sio2_send(u8 in_size, u8 out_size, u8 *in_buf, u8 *out_buf)
+int mmce_sio2_tx_rx_pio(u8 tx_size, u8 rx_size, u8 *tx_buf, u8 *rx_buf, iop_sys_clock_t *timeout)
 {
     u32 resbits;
 
@@ -210,42 +219,42 @@ int mmce_sio2_send(u8 in_size, u8 out_size, u8 *in_buf, u8 *out_buf)
                         TR_CTRL_SPECIAL_TR(0)       |
                         TR_CTRL_BAUD_DIV(0)         |
                         TR_CTRL_WAIT_ACK_FOREVER(0) |
-                        TR_CTRL_TX_DATA_SZ(in_size)|
-                        TR_CTRL_RX_DATA_SZ(out_size));
+                        TR_CTRL_TX_DATA_SZ(tx_size)|
+                        TR_CTRL_RX_DATA_SZ(rx_size));
     inl_sio2_regN_set(1, 0);
 
     //Copy data to TX FIFO
-    for (int i = 0; i < in_size; i++) {
-        inl_sio2_data_out(in_buf[i]);
+    for (int i = 0; i < tx_size; i++) {
+        inl_sio2_data_out(tx_buf[i]);
     }
 
     //Start transfer
     inl_sio2_ctrl_set(inl_sio2_ctrl_get() | 1);
 
     //Set timeout alarm
-    SetAlarm(&timeout_single_transfer, mmce_sio2_timeout_handler, &event_flag);
+    SetAlarm(timeout, mmce_sio2_timeout_handler, &event_flag);
 
-    //Wait for completetion or timeout
+    //Wait for completion or timeout
     WaitEventFlag(event_flag, EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE, 1, &resbits);
     if (resbits & EF_SIO2_TRANSFER_TIMEOUT) {
-        DPRINTF("Detected transfer timeout, attempting to reset SIO2\n");
-        inl_sio2_ctrl_set(0x3ac); //Reset SIO2
+        DPRINTF("Transfer timed out, resetting SIO2\n");
+        inl_sio2_ctrl_set(0x3ac);   //Reset SIO2
         ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
         return -1;
-    } else {
-        //Cancel timeout alarm
-        CancelAlarm(mmce_sio2_timeout_handler,  &event_flag);
     }
+
+    //Cancel timeout alarm
+    CancelAlarm(mmce_sio2_timeout_handler,  &event_flag);
     
     //Clear flags
     ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
 
     //Copy data out of RX FIFO
-    for (int i = 0; i < out_size; i++) {
-        out_buf[i] = inl_sio2_data_in();
+    for (int i = 0; i < rx_size; i++) {
+        rx_buf[i] = inl_sio2_data_in();
     }
 
-    //Check transfer timeout bit
+    //Check timeout bit
     if ((inl_sio2_stat6c_get() & 0x8000) != 0) {
         return -1;
     }
@@ -253,17 +262,16 @@ int mmce_sio2_send(u8 in_size, u8 out_size, u8 *in_buf, u8 *out_buf)
     return 0;
 }
 
-
-//TODO: simplified read for sectors / MMCEDRV
-int mmce_sio2_read_raw_dma(u32 size, u8 *buffer)
+//Simplified read for sectors / MMCEDRV
+int mmce_sio2_rx_dma(u8 *buffer, u32 size)
 {
+    u32 resbits;
+
     //dma element count (round down)
     u32 elements = size / 256;
 
-    u32 bytes_done = 0;
     u32 elements_do = 0;
-
-    u32 offset = 0;
+    u32 elements_done = 0;
 
     //used for all elements 256 bytes in size
     u32 dma_element = TR_CTRL_PORT_NR(mmce_port)      |
@@ -277,9 +285,9 @@ int mmce_sio2_read_raw_dma(u32 size, u8 *buffer)
                       TR_CTRL_TX_DATA_SZ(0)           |
                       TR_CTRL_RX_DATA_SZ(256);
 
-   while (bytes_done < size) {
+   while (elements != 0) {
         //Reset SIO2 + FIFO pointers, enable interrupts
-        inl_sio2_ctrl_set(0x3bc);
+        inl_sio2_ctrl_set(0x3ac);
 
         elements_do = elements > 16 ? 16 : elements;
 
@@ -288,31 +296,40 @@ int mmce_sio2_read_raw_dma(u32 size, u8 *buffer)
             inl_sio2_regN_set(i, dma_element);
         }
 
-        //Term transfer queue if needed
-        if (elements_do < 16) {
-            inl_sio2_regN_set(elements_do, 0x0);
-        }
-
-        //Start DMA transfer if needed
-        dmac_request(IOP_DMAC_SIO2out, &buffer[bytes_done], 0x100 >> 2, elements_do, DMAC_TO_MEM);
+        //Start DMA transfer
+        dmac_request(IOP_DMAC_SIO2out, &buffer[elements_done * 256], 0x100 >> 2, elements_do, DMAC_TO_MEM);
         dmac_transfer(IOP_DMAC_SIO2out);
 
         //Start the transfer
         inl_sio2_ctrl_set(inl_sio2_ctrl_get() | 1);
 
-        WaitEventFlag(event_flag, EF_SIO2_INTR_COMPLETE, 0, NULL);
-	    ClearEventFlag(event_flag, ~EF_SIO2_INTR_COMPLETE);
+        //Set timeout alarm
+        SetAlarm(&timeout_2s, mmce_sio2_timeout_handler, &event_flag);
 
-        bytes_done += elements_do * 256;
+        //Wait for completion or timeout
+        WaitEventFlag(event_flag, EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE, 1, &resbits);
+        if (resbits & EF_SIO2_TRANSFER_TIMEOUT) {
+            DPRINTF("Transfer timed out, resetting SIO2\n");
+            inl_sio2_ctrl_set(0x3ac); //Reset SIO2
+            ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
+            return -1;
+        }
+        
+        //Cancel timeout alarm
+        CancelAlarm(mmce_sio2_timeout_handler,  &event_flag);
+        
+        //Clear flags
+        ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
 
         elements -= elements_do;
+        elements_done += elements_do;
     }
 
     return 0;
 }
 
-
-int mmce_sio2_read_raw(u32 size, u8 *buffer)
+//Mixed DMA / PIO RX transfer
+int mmce_sio2_rx_mixed(u8 *buffer, u32 size)
 {
     u32 resbits;
 
@@ -393,20 +410,20 @@ int mmce_sio2_read_raw(u32 size, u8 *buffer)
         inl_sio2_ctrl_set(inl_sio2_ctrl_get() | 1);
 
         //Set timeout alarm
-        SetAlarm(&timeout_multi_transfer, mmce_sio2_timeout_handler, &event_flag);
+        SetAlarm(&timeout_2s, mmce_sio2_timeout_handler, &event_flag);
 
-        //Wait for completetion or timeout
+        //Wait for completion or timeout
         WaitEventFlag(event_flag, EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE, 1, &resbits);
         if (resbits & EF_SIO2_TRANSFER_TIMEOUT) {
             DPRINTF("Detected transfer timeout, attempting to reset SIO2\n");
             inl_sio2_ctrl_set(0x3ac); //Reset SIO2
             ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
             return -1;
-        } else {
-            //Cancel timeout alarm
-            CancelAlarm(mmce_sio2_timeout_handler,  &event_flag);
         }
-        
+
+        //Cancel timeout alarm
+        CancelAlarm(mmce_sio2_timeout_handler,  &event_flag);
+
         //Clear flags
         ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
 
@@ -424,10 +441,11 @@ int mmce_sio2_read_raw(u32 size, u8 *buffer)
     return 0;
 }
 
-int mmce_sio2_write_raw(u32 size, u8 *buffer)
+int mmce_sio2_tx_mixed(u8 *buffer, u32 size)
 {
     int res;
-    
+    u32 resbits;
+
     //dma element count (round down)
     u32 elements = size / 256;
 
@@ -438,6 +456,7 @@ int mmce_sio2_write_raw(u32 size, u8 *buffer)
     u32 elements_do = 0;
 
     u8 polling = 1;
+    u8 rx_buf[3];
 
     //used for all elements 256 bytes in size
     u32 dma_element = TR_CTRL_PORT_NR(mmce_port)      |
@@ -466,9 +485,9 @@ int mmce_sio2_write_raw(u32 size, u8 *buffer)
     while(1) {
         //Polling stage
         if (polling == 1) {
-            res = mmce_sio2_wait_equal(1, 128000);
+            res = mmce_sio2_tx_rx_pio(0, 2, NULL, rx_buf, &timeout_2s);
             if (res == -1) {
-                DPRINTF("%s ERROR: Polling timeout reached\n", __func__);
+                DPRINTF("%s ERROR: Timed out waiting for ready\n", __func__);
                 return -1;
             }
 
@@ -485,7 +504,7 @@ int mmce_sio2_write_raw(u32 size, u8 *buffer)
             //Full 4KB DMA transfer
             if (elements_do == 16) {
                 //Reset SIO2 + FIFO pointers, enable interrupts
-                inl_sio2_ctrl_set(0x3bc);
+                inl_sio2_ctrl_set(0x3ac);
 
                 for (int i = 0; i < elements_do; i++) {
                     inl_sio2_regN_set(i, dma_element);
@@ -497,10 +516,26 @@ int mmce_sio2_write_raw(u32 size, u8 *buffer)
                 bytes_done += elements_do * 256;
                 elements -= elements_do;
 
+                //Start the transfer
                 inl_sio2_ctrl_set(inl_sio2_ctrl_get() | 1);
 
-                WaitEventFlag(event_flag, EF_SIO2_INTR_COMPLETE, 0, NULL);
-	            ClearEventFlag(event_flag, ~EF_SIO2_INTR_COMPLETE);
+                //Set timeout alarm
+                SetAlarm(&timeout_2s, mmce_sio2_timeout_handler, &event_flag);
+
+                //Wait for completion or timeout
+                WaitEventFlag(event_flag, EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE, 1, &resbits);
+                if (resbits & EF_SIO2_TRANSFER_TIMEOUT) {
+                    DPRINTF("Detected transfer timeout, attempting to reset SIO2\n");
+                    inl_sio2_ctrl_set(0x3ac); //Reset SIO2
+                    ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
+                    return -1;
+                }
+
+                //Cancel timeout alarm
+                CancelAlarm(mmce_sio2_timeout_handler,  &event_flag);
+
+                //Clear flags
+                ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
 
                 polling = 1;
 
@@ -510,7 +545,7 @@ int mmce_sio2_write_raw(u32 size, u8 *buffer)
                 if (elements_do != 0) {
 
                     //Reset SIO2 + FIFO pointers, enable interrupts
-                    inl_sio2_ctrl_set(0x3bc);
+                    inl_sio2_ctrl_set(0x3ac);
 
                     for (int i = 0; i < elements_do; i++) {
                         inl_sio2_regN_set(i, dma_element);
@@ -524,16 +559,32 @@ int mmce_sio2_write_raw(u32 size, u8 *buffer)
                     bytes_done += elements_do * 256;
                     elements -= elements_do;
 
+                    //Start the transfer
                     inl_sio2_ctrl_set(inl_sio2_ctrl_get() | 1);
 
-                    WaitEventFlag(event_flag, EF_SIO2_INTR_COMPLETE, 0, NULL);
-	                ClearEventFlag(event_flag, ~EF_SIO2_INTR_COMPLETE);
+                    //Set timeout alarm
+                    SetAlarm(&timeout_2s, mmce_sio2_timeout_handler, &event_flag);
+
+                    //Wait for completion or timeout
+                    WaitEventFlag(event_flag, EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE, 1, &resbits);
+                    if (resbits & EF_SIO2_TRANSFER_TIMEOUT) {
+                        DPRINTF("Detected transfer timeout, attempting to reset SIO2\n");
+                        inl_sio2_ctrl_set(0x3ac); //Reset SIO2
+                        ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
+                        return -1;
+                    }
+
+                    //Cancel timeout alarm
+                    CancelAlarm(mmce_sio2_timeout_handler,  &event_flag);
+
+                    //Clear flags
+                    ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
                 }
                 //PIO element
                 if (pio_size != 0) {
                     
                     //Reset SIO2 + FIFO pointers, enable interrupts
-                    inl_sio2_ctrl_set(0x3bc);
+                    inl_sio2_ctrl_set(0x3ac);
                     
                     inl_sio2_regN_set(0, pio_element);
                     inl_sio2_regN_set(1, 0);
@@ -546,10 +597,26 @@ int mmce_sio2_write_raw(u32 size, u8 *buffer)
                     bytes_done += pio_size;
                     pio_size = 0;
 
+                    //Start the transfer
                     inl_sio2_ctrl_set(inl_sio2_ctrl_get() | 1);
 
-                    WaitEventFlag(event_flag, EF_SIO2_INTR_COMPLETE, 0, NULL);
-	                ClearEventFlag(event_flag, ~EF_SIO2_INTR_COMPLETE);
+                    //Set timeout alarm
+                    SetAlarm(&timeout_2s, mmce_sio2_timeout_handler, &event_flag);
+
+                    //Wait for completion or timeout
+                    WaitEventFlag(event_flag, EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE, 1, &resbits);
+                    if (resbits & EF_SIO2_TRANSFER_TIMEOUT) {
+                        DPRINTF("Detected transfer timeout, attempting to reset SIO2\n");
+                        inl_sio2_ctrl_set(0x3ac); //Reset SIO2
+                        ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
+                        return -1;
+                    }
+
+                    //Cancel timeout alarm
+                    CancelAlarm(mmce_sio2_timeout_handler,  &event_flag);
+
+                    //Clear flags
+                    ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
                 }
                 polling = 1;
             }
@@ -557,45 +624,4 @@ int mmce_sio2_write_raw(u32 size, u8 *buffer)
         }
     }
     return 0;
-}
-
-int mmce_sio2_wait_equal(u8 value, u32 count)
-{
-    u8 in_byte;
-
-    do {
-        //Reset SIO2 + FIFO pointers, disable interrupts
-        inl_sio2_ctrl_set(0x3bc);
-
-        inl_sio2_regN_set(0,
-                            TR_CTRL_PORT_NR(mmce_port)  |
-                            TR_CTRL_PAUSE(0)            |
-                            TR_CTRL_TX_MODE_PIO_DMA(0)  |
-                            TR_CTRL_RX_MODE_PIO_DMA(0)  |
-                            TR_CTRL_NORMAL_TR(1)        |
-                            TR_CTRL_SPECIAL_TR(0)       |
-                            TR_CTRL_BAUD_DIV(0)         |
-                            TR_CTRL_WAIT_ACK_FOREVER(0) |
-                            TR_CTRL_TX_DATA_SZ(0)       |
-                            TR_CTRL_RX_DATA_SZ(2));
-        inl_sio2_regN_set(1, 0);
-
-        //Start transfer
-        inl_sio2_ctrl_set(inl_sio2_ctrl_get() | 1);
-        
-        WaitEventFlag(event_flag, EF_SIO2_INTR_COMPLETE, 0, NULL);
-	    ClearEventFlag(event_flag, ~EF_SIO2_INTR_COMPLETE);
-
-        //Read byte
-        in_byte = inl_sio2_data_in(); //FIFO byte 0
-        in_byte = inl_sio2_data_in(); //FIFO byte 1
-
-        if ((inl_sio2_stat6c_get() & 0x8000) != 0) {
-            return -2;
-        }
-
-        count--;
-    } while (count > 0 && in_byte != value);
-
-    return (value == in_byte) ? 0 : -1;
 }

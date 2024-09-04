@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <thsemap.h>
+#include <thbase.h>
 
 #include "ioplib.h"
 #include "intrman.h"
@@ -36,7 +37,6 @@ psio2_transfer_reset _52_psio2_transfer_reset;
 static void _sio2_transfer_init(psio2_transfer_init init_func)
 {
     //DPRINTF("%s\n", __FUNCTION__);
-
     WaitSema(lock_sema);
     init_func();
 }
@@ -365,6 +365,14 @@ int sio2man_hook_init()
         }
         pRegisterIntrHandler = ioplib_hookExportEntry(lib, 4, hookRegisterIntrHandler);
     }
+
+    /*
+    lib = ioplib_getByName("thbase");
+    if (lib == NULL) {
+        printf("failed to get thbase\n");
+    } else {
+        pCreateThread = ioplib_hookExportEntry(lib, 4, hookCreateThread);
+    }*/
 
     return 0;
 }

@@ -96,7 +96,7 @@ int mmce_fs_open(iomanX_iop_file_t *file, const char *name, int flags, int mode)
     mmce_sio2_lock(); //Lock SIO2 for transfer
 
     //Packet #1: Command and flags
-    res = mmce_sio2_send(0x5, 0x2, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x5, 0x2, wrbuf, rdbuf, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -110,15 +110,15 @@ int mmce_fs_open(iomanX_iop_file_t *file, const char *name, int flags, int mode)
     }
 
     //Packet #2: Filename
-    res = mmce_sio2_send(filename_len, 0x0, name, NULL);
+    res = mmce_sio2_tx_rx_pio(filename_len, 0x0, name, NULL, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P2 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
         return -1;
     }
 
-    //Packet #4 - File handle
-    res = mmce_sio2_send(0x0, 0x3, wrbuf, rdbuf);
+    //Packet #3 - File descriptor
+    res = mmce_sio2_tx_rx_pio(0x0, 0x3, wrbuf, rdbuf, &timeout_500ms);
     mmce_sio2_unlock();
     if (res == -1) {
         DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
@@ -159,7 +159,7 @@ int mmce_fs_close(iomanX_iop_file_t *file)
 
     //Packet #1: Command, file descriptor, return value
     mmce_sio2_lock();
-    res = mmce_sio2_send(0x4, 0x6, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x4, 0x6, wrbuf, rdbuf, &timeout_500ms);
     mmce_sio2_unlock();
 
     if (res == -1) {
@@ -175,7 +175,7 @@ int mmce_fs_close(iomanX_iop_file_t *file)
     if (rdbuf[0x4] == 0x0) {
         *(int*)file->privdata = -1;
     } else {
-        res = rdbuf[0x1];
+        res = rdbuf[0x4];
         DPRINTF("%s ERROR: got return value %i\n", __func__, res);
     }
 
@@ -209,7 +209,7 @@ int mmce_fs_read(iomanX_iop_file_t *file, void *ptr, int size)
     mmce_sio2_lock();
 
     //Packet #1: Command, file descriptor, and size
-    res = mmce_sio2_send(0xA, 0xA, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0xA, 0xA, wrbuf, rdbuf, &timeout_2s);
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -229,7 +229,7 @@ int mmce_fs_read(iomanX_iop_file_t *file, void *ptr, int size)
     }
 
     //Packet #2 - n: Raw read data
-    res = mmce_sio2_read_raw(size, ptr);
+    res = mmce_sio2_rx_mixed(ptr, size);
     if (res == -1) {
         DPRINTF("%s ERROR: P2 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -237,7 +237,7 @@ int mmce_fs_read(iomanX_iop_file_t *file, void *ptr, int size)
     }
 
     //Packet #n + 1: Bytes read
-    res = mmce_sio2_send(0x0, 0x6, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x0, 0x6, wrbuf, rdbuf, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -253,6 +253,10 @@ int mmce_fs_read(iomanX_iop_file_t *file, void *ptr, int size)
 
     if (bytes_read != size) {
         DPRINTF("%s ERROR: bytes read: %i, expected: %i\n", __func__, bytes_read, size);
+
+        if (bytes_read > size)
+            bytes_read = size;
+
     }
 
     return bytes_read;
@@ -284,7 +288,7 @@ int mmce_fs_write(iomanX_iop_file_t *file, void *ptr, int size)
     mmce_sio2_lock();
 
     //Packet #1: Command, file descriptor, and size
-    res = mmce_sio2_send(0xA, 0xA, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0xA, 0xA, wrbuf, rdbuf, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -304,7 +308,7 @@ int mmce_fs_write(iomanX_iop_file_t *file, void *ptr, int size)
     }
 
     //Packet #2 - n: Raw write data
-    res = mmce_sio2_write_raw(size, ptr);
+    res = mmce_sio2_tx_mixed(ptr, size);
     if (res == -1) {
         DPRINTF("%s ERROR: P2 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -312,7 +316,7 @@ int mmce_fs_write(iomanX_iop_file_t *file, void *ptr, int size)
     }
 
     //Packets #n + 1: Bytes written
-    res = mmce_sio2_send(0x0, 0x6, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x0, 0x6, wrbuf, rdbuf, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -357,7 +361,7 @@ int mmce_fs_lseek(iomanX_iop_file_t *file, int offset, int whence)
 
     //Packet #1: Command, file descriptor, offset, and whence
     mmce_sio2_lock();
-    res = mmce_sio2_send(0x9, 0xe, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x9, 0xe, wrbuf, rdbuf, &timeout_500ms);
     mmce_sio2_unlock();
     
     if (res == -1) {
@@ -408,7 +412,7 @@ int mmce_fs_remove(iomanX_iop_file_t *file, const char *name)
     mmce_sio2_lock();
 
     //Packet #1: Command
-    res = mmce_sio2_send(0x4, 0x2, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x4, 0x2, wrbuf, rdbuf, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -422,7 +426,7 @@ int mmce_fs_remove(iomanX_iop_file_t *file, const char *name)
     }
 
     //Packet #2: Filename
-    res = mmce_sio2_send(filename_len, 0x0, name, NULL);
+    res = mmce_sio2_tx_rx_pio(filename_len, 0x0, name, NULL, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P2 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -430,7 +434,7 @@ int mmce_fs_remove(iomanX_iop_file_t *file, const char *name)
     }
 
     //Packet #3: Return value
-    res = mmce_sio2_send(0x0, 0x3, NULL, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x0, 0x3, NULL, rdbuf, &timeout_500ms);
     mmce_sio2_unlock();
 
     if (res == -1) {
@@ -467,7 +471,7 @@ int mmce_fs_mkdir(iomanX_iop_file_t *file, const char *name, int flags)
     mmce_sio2_lock();
 
     //Packet #1: Command
-    res = mmce_sio2_send(0x4, 0x2, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x4, 0x2, wrbuf, rdbuf, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -481,7 +485,7 @@ int mmce_fs_mkdir(iomanX_iop_file_t *file, const char *name, int flags)
     }
 
     //Packet #2: Dirname
-    res = mmce_sio2_send(dir_len, 0x0, name, NULL);
+    res = mmce_sio2_tx_rx_pio(dir_len, 0x0, name, NULL, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P2 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -489,7 +493,7 @@ int mmce_fs_mkdir(iomanX_iop_file_t *file, const char *name, int flags)
     }
 
     //Packet #3: Return value
-    res = mmce_sio2_send(0x0, 0x3, NULL, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x0, 0x3, NULL, rdbuf, &timeout_500ms);
     mmce_sio2_unlock();
 
     if (res == -1) {
@@ -526,7 +530,7 @@ int mmce_fs_rmdir(iomanX_iop_file_t *file, const char *name)
     mmce_sio2_lock();
 
     //Packet #1: Command
-    res = mmce_sio2_send(0x4, 0x2, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x4, 0x2, wrbuf, rdbuf, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -540,7 +544,7 @@ int mmce_fs_rmdir(iomanX_iop_file_t *file, const char *name)
     }
 
     //Packet #2: Dirname
-    res = mmce_sio2_send(dir_len, 0x0, name, NULL);
+    res = mmce_sio2_tx_rx_pio(dir_len, 0x0, name, NULL, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P2 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -548,7 +552,7 @@ int mmce_fs_rmdir(iomanX_iop_file_t *file, const char *name)
     }
 
     //Packet #3: Return value
-    res = mmce_sio2_send(0x0, 0x3, NULL, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x0, 0x3, NULL, rdbuf, &timeout_500ms);
     mmce_sio2_unlock();
 
     if (res == -1) {
@@ -592,7 +596,7 @@ int mmce_fs_dopen(iomanX_iop_file_t *file, const char *name)
     mmce_sio2_lock();
 
     //Packet #1: Command
-    res = mmce_sio2_send(0x4, 0x2, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x4, 0x2, wrbuf, rdbuf, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -606,7 +610,7 @@ int mmce_fs_dopen(iomanX_iop_file_t *file, const char *name)
     }
 
     //Packet #2: Dirname
-    res = mmce_sio2_send(dir_len, 0x0, name, NULL);
+    res = mmce_sio2_tx_rx_pio(dir_len, 0x0, name, NULL, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P2 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -614,7 +618,7 @@ int mmce_fs_dopen(iomanX_iop_file_t *file, const char *name)
     }
 
     //Packet #n + 1: File descriptor
-    res = mmce_sio2_send(0x0, 0x3, NULL, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x0, 0x3, NULL, rdbuf, &timeout_500ms);
     mmce_sio2_unlock();
 
     if (res == -1) {
@@ -651,7 +655,7 @@ int mmce_fs_dclose(iomanX_iop_file_t *file)
 
     //Packet #1: Command and file descriptor
     mmce_sio2_lock();    
-    res = mmce_sio2_send(0x4, 0x6, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x4, 0x6, wrbuf, rdbuf, &timeout_500ms);
     mmce_sio2_unlock();
 
     if (res == -1) {
@@ -697,7 +701,7 @@ int mmce_fs_dread(iomanX_iop_file_t *file, iox_dirent_t *dirent)
     mmce_sio2_lock();
 
     //Packet #1: Command and file descriptor
-    res = mmce_sio2_send(0x5, 0x5, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x5, 0x5, wrbuf, rdbuf, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -717,7 +721,7 @@ int mmce_fs_dread(iomanX_iop_file_t *file, iox_dirent_t *dirent)
     }
 
     //Packet #n + 1: io_stat_t and filename len
-    res = mmce_sio2_send(0x0, 0x2A, NULL, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x0, 0x2A, NULL, rdbuf, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -775,7 +779,7 @@ int mmce_fs_dread(iomanX_iop_file_t *file, iox_dirent_t *dirent)
     filename_len = rdbuf[0x29];
 
     //Packet #n + 2: Filename
-    res = mmce_sio2_send(0x0, filename_len, NULL, dirent->name);
+    res = mmce_sio2_tx_rx_pio(0x0, filename_len, NULL, dirent->name, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P4 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -783,7 +787,7 @@ int mmce_fs_dread(iomanX_iop_file_t *file, iox_dirent_t *dirent)
     }
 
     //Packet #n + 3: Padding, resevered, and term
-    res = mmce_sio2_send(0x0, 0x3, NULL, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x0, 0x3, NULL, rdbuf, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P5 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -815,7 +819,7 @@ int mmce_fs_getstat(iomanX_iop_file_t *file, const char *name, iox_stat_t *stat)
     mmce_sio2_lock();
 
     //Packet #1: Command and padding
-    res = mmce_sio2_send(0x4, 0x4, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x4, 0x4, wrbuf, rdbuf, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -829,7 +833,7 @@ int mmce_fs_getstat(iomanX_iop_file_t *file, const char *name, iox_stat_t *stat)
     }
 
     //Packet #2: Filename 
-    res = mmce_sio2_send(len, 0x0, name, NULL);
+    res = mmce_sio2_tx_rx_pio(len, 0x0, name, NULL, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P2 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -837,7 +841,7 @@ int mmce_fs_getstat(iomanX_iop_file_t *file, const char *name, iox_stat_t *stat)
     }
 
     //Packet #n + 1: io_stat_t and term
-    res = mmce_sio2_send(0x0, 0x2b, NULL, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x0, 0x2b, NULL, rdbuf, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P4 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -933,7 +937,7 @@ s64 mmce_fs_lseek64(iomanX_iop_file_t *file, s64 offset, int whence)
 
     //Packet #1: Command, file descriptor, offset, and whence
     mmce_sio2_lock();
-    res = mmce_sio2_send(0xd, 0x16, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0xd, 0x16, wrbuf, rdbuf, &timeout_500ms);
     mmce_sio2_unlock();
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
@@ -1013,6 +1017,10 @@ int mmce_fs_devctl(iomanX_iop_file_t *fd, const char *name, int cmd, void *arg, 
             res = mmce_cmd_set_gameid(str);
         break;
 
+        case MMCE_CMD_FS_RESET:
+            res = mmce_cmd_fs_reset();
+        break;
+
         default:
         break;    
     }
@@ -1064,7 +1072,7 @@ static iomanX_iop_device_ops_t mmce_fio_ops =
     &mmce_fs_devctl,  //devctl
     NOT_SUPPORTED_OP, //symlink
     NOT_SUPPORTED_OP, //readlink
-    &mmce_fs_ioctl2, //ioctl2
+    &mmce_fs_ioctl2,  //ioctl2
 };
 
 static iomanX_iop_device_t mmce_dev =

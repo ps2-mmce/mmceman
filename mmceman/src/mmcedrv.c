@@ -16,7 +16,7 @@
 #define MAJOR 0
 #define MINOR 1
 
-IRX_ID(MODNAME, MAJOR, MINOR);
+IRX_ID("mmcedrv", MAJOR, MINOR);
 
 struct mmcedrv_config config = {MODULE_SETTINGS_MAGIC}; //For Neutrino
 extern struct irx_export_table _exp_mmcedrv;
@@ -50,7 +50,7 @@ s64 mmcedrv_get_size()
 
     //Packet #1: Command, file descriptor, offset, and whence
     mmce_sio2_lock();
-    res = mmce_sio2_send(0xd, 0x16, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0xd, 0x16, wrbuf, rdbuf, &timeout_500ms);
     mmce_sio2_unlock();
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
@@ -108,7 +108,7 @@ int mmcedrv_read_sector(int type, u32 sector, u32 count, void *buffer)
     mmce_sio2_lock();
 
     //Packet #1: Command, file descriptor, and size
-    res = mmce_sio2_send(0xB, 0xB, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0xB, 0xB, wrbuf, rdbuf, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -127,8 +127,8 @@ int mmcedrv_read_sector(int type, u32 sector, u32 count, void *buffer)
         return -1;
     }
 
-    //Packet #2 - n: Raw read data
-    res = mmce_sio2_read_raw((count * 2048), buffer);
+    //Packet #2 - n: Read data
+    res = mmce_sio2_rx_dma(buffer, (count * 2048));
     if (res == -1) {
         DPRINTF("%s ERROR: P2 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -136,7 +136,7 @@ int mmcedrv_read_sector(int type, u32 sector, u32 count, void *buffer)
     }
 
     //Packet #n + 1: Sectors read
-    res = mmce_sio2_send(0x0, 0x5, wrbuf, rdbuf);
+    res = mmce_sio2_tx_rx_pio(0x0, 0x5, wrbuf, rdbuf, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -144,7 +144,7 @@ int mmcedrv_read_sector(int type, u32 sector, u32 count, void *buffer)
     }
 
     mmce_sio2_unlock();
-    
+
     sectors_read  = rdbuf[0x1] << 16;
     sectors_read |= rdbuf[0x2] << 8;
     sectors_read |= rdbuf[0x3];
@@ -155,7 +155,6 @@ int mmcedrv_read_sector(int type, u32 sector, u32 count, void *buffer)
 
     return sectors_read;
 }
-
 
 //For OPL, called through CDVDMAN Device
 void mmcedrv_config_set(int setting, int value)

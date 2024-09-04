@@ -17,4 +17,5 @@ extern void *sio2man_intr_arg_ptr;
 //Temporary replacement intr handler
 extern int (*mmce_sio2_intr_handler_ptr)(void *arg);
 extern void *mmce_sio2_intr_arg_ptr;
+
 #endif
