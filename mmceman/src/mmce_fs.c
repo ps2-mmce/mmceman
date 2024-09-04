@@ -252,7 +252,7 @@ int mmce_fs_read(iomanX_iop_file_t *file, void *ptr, int size)
     bytes_read |= rdbuf[0x4];
 
     if (bytes_read != size) {
-        DPRINTF("%s ERROR: bytes read: %i, expected: %i\n", __func__, bytes_read, size);
+        DPRINTF("%s WARN: bytes read: %i, expected: %i\n", __func__, bytes_read, size);
 
         if (bytes_read > size)
             bytes_read = size;

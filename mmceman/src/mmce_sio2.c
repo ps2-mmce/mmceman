@@ -126,7 +126,7 @@ void mmce_sio2_set_port(int port)
 
     mmce_sio2_port_ctrl2[port] =
         PCTRL1_ACK_TIMEOUT_PER(0xffff)|
-        PCTRL1_INTER_BYTE_PER(0x2)    |
+        PCTRL1_INTER_BYTE_PER(0x5)    |
         PCTRL1_UNK24(0x0)             |
         PCTRL1_IF_MODE_SPI_DIFF(0x0);
 }

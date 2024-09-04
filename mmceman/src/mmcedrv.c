@@ -150,7 +150,7 @@ int mmcedrv_read_sector(int type, u32 sector, u32 count, void *buffer)
     sectors_read |= rdbuf[0x3];
 
     if (sectors_read != count) {
-        DPRINTF("%s ERROR: bytes read: %i, expected: %i\n", __func__, sectors_read, count);
+        DPRINTF("%s ERROR: Sectors read: %i, expected: %i\n", __func__, sectors_read, count);
     }
 
     return sectors_read;
