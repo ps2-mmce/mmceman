@@ -626,7 +626,7 @@ int mmce_fs_dopen(iomanX_iop_file_t *file, const char *name)
         return -1;
     }
 
-    if (rdbuf[0x1] != 0x0 && rdbuf[0x1] != 0xff) {
+    if (rdbuf[0x1] != 0xff) {
         *(int*)file->privdata = rdbuf[0x1];
     } else {
         DPRINTF("%s ERROR: Got invalid fd: %i\n", __func__, rdbuf[0x1]);
