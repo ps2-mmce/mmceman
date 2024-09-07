@@ -156,6 +156,201 @@ int mmcedrv_read_sector(int type, u32 sector, u32 count, void *buffer)
     return sectors_read;
 }
 
+int mmcedrv_read(int fd, int size, void *ptr)
+{
+    int res;
+    int bytes_read;
+
+    DPRINTF("%s: fd: %i, size: %i\n", __func__, fd, size);
+
+    u8 wrbuf[0xA];
+    u8 rdbuf[0xA];
+
+    wrbuf[0x0] = MMCE_ID;                   //Identifier
+    wrbuf[0x1] = MMCE_CMD_FS_READ;          //Command
+    wrbuf[0x2] = MMCE_RESERVED;             //Reserved
+    wrbuf[0x3] = 0x0;                       //Transfer mode (unimplemented)
+    wrbuf[0x4] = fd;                        //File Descriptor 
+    wrbuf[0x5] = (size & 0xFF000000) >> 24; //Size
+    wrbuf[0x6] = (size & 0x00FF0000) >> 16;
+    wrbuf[0x7] = (size & 0x0000FF00) >> 8;
+    wrbuf[0x8] = (size & 0x000000FF);
+    wrbuf[0x9] = 0xff;
+
+    mmce_sio2_lock();
+
+    //Packet #1: Command, file descriptor, and size
+    res = mmce_sio2_tx_rx_pio(0xA, 0xA, wrbuf, rdbuf, &timeout_2s);
+    if (res == -1) {
+        DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
+        mmce_sio2_unlock();
+        return -1;
+    }
+
+    if (rdbuf[0x1] != MMCE_REPLY_CONST) {
+        DPRINTF("%s ERROR: Invalid response from card. Got 0x%x, Expected 0x%x\n", __func__, rdbuf[0x1], MMCE_REPLY_CONST);
+        mmce_sio2_unlock();
+        return -1;
+    }
+
+    if (rdbuf[0x9] != 0x0) {
+        DPRINTF("%s ERROR: P1 - Got bad return value from card, res %i\n", __func__, rdbuf[0x9]);
+        mmce_sio2_unlock();
+        return -1;
+    }
+
+    //Packet #2 - n: Raw read data
+    res = mmce_sio2_rx_mixed(ptr, size);
+    if (res == -1) {
+        DPRINTF("%s ERROR: P2 - Timedout waiting for /ACK\n", __func__);
+        mmce_sio2_unlock();
+        return -1;
+    }
+
+    //Packet #n + 1: Bytes read
+    res = mmce_sio2_tx_rx_pio(0x0, 0x6, wrbuf, rdbuf, &timeout_500ms);
+    if (res == -1) {
+        DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
+        mmce_sio2_unlock();
+        return -1;
+    }
+
+    mmce_sio2_unlock();
+    
+    bytes_read  = rdbuf[0x1] << 24;
+    bytes_read |= rdbuf[0x2] << 16;
+    bytes_read |= rdbuf[0x3] << 8;
+    bytes_read |= rdbuf[0x4];
+
+    if (bytes_read != size) {
+        DPRINTF("%s WARN: bytes read: %i, expected: %i\n", __func__, bytes_read, size);
+
+        if (bytes_read > size)
+            bytes_read = size;
+
+    }
+
+    return bytes_read;
+}
+
+int mmcedrv_write(int fd, int size, void *ptr)
+{
+    int res;
+    int bytes_written;
+
+    DPRINTF("%s: fd: %i, size: %i\n", __func__, fd, size);
+
+    u8 wrbuf[0xA];
+    u8 rdbuf[0xA];
+
+    wrbuf[0x0] = MMCE_ID;                   //Identifier
+    wrbuf[0x1] = MMCE_CMD_FS_WRITE;         //Command
+    wrbuf[0x2] = MMCE_RESERVED;             //Reserved
+    wrbuf[0x3] = 0x0;                       //Transfer mode (unimplemented)
+    wrbuf[0x4] = fd;                        //File Descriptor 
+    wrbuf[0x5] = (size & 0xFF000000) >> 24;
+    wrbuf[0x6] = (size & 0x00FF0000) >> 16;
+    wrbuf[0x7] = (size & 0x0000FF00) >> 8;
+    wrbuf[0x8] = (size & 0x000000FF);
+    wrbuf[0x9] = 0xff;
+
+    mmce_sio2_lock();
+
+    //Packet #1: Command, file descriptor, and size
+    res = mmce_sio2_tx_rx_pio(0xA, 0xA, wrbuf, rdbuf, &timeout_500ms);
+    if (res == -1) {
+        DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
+        mmce_sio2_unlock();
+        return -1;
+    }
+
+    if (rdbuf[0x1] != MMCE_REPLY_CONST) {
+        DPRINTF("%s ERROR: Invalid response from card. Got 0x%x, Expected 0x%x\n", __func__, rdbuf[0x1], MMCE_REPLY_CONST);
+        mmce_sio2_unlock();
+        return -1;
+    }
+
+    if (rdbuf[0x9] != 0x0) {
+        DPRINTF("%s ERROR: P1 - Got bad return value from card 0x%x\n", __func__, rdbuf[0x9]);
+        mmce_sio2_unlock();
+        return -1;
+    }
+
+    //Packet #2 - n: Raw write data
+    res = mmce_sio2_tx_mixed(ptr, size);
+    if (res == -1) {
+        DPRINTF("%s ERROR: P2 - Timedout waiting for /ACK\n", __func__);
+        mmce_sio2_unlock();
+        return -1;
+    }
+
+    //Packets #n + 1: Bytes written
+    res = mmce_sio2_tx_rx_pio(0x0, 0x6, wrbuf, rdbuf, &timeout_500ms);
+    if (res == -1) {
+        DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
+        mmce_sio2_unlock();
+        return -1;
+    }
+
+    mmce_sio2_unlock();
+
+    bytes_written  = rdbuf[0x1] << 24;    
+    bytes_written |= rdbuf[0x2] << 16;   
+    bytes_written |= rdbuf[0x3] << 8;   
+    bytes_written |= rdbuf[0x4];
+
+    if (bytes_written != size) {
+        DPRINTF("%s bytes written: %i, expected: %i\n", __func__, bytes_written, size);
+    }
+
+    return bytes_written;
+}
+
+int mmcedrv_lseek(int fd, int offset, int whence)
+{
+    int res;
+    int position = -1;
+
+    DPRINTF("%s: fd: %i, offset: %i, whence: %i\n", __func__, fd, offset, whence);
+
+    u8 wrbuf[0x9];
+    u8 rdbuf[0xe];
+
+    wrbuf[0x0] = MMCE_ID;                       //Identifier
+    wrbuf[0x1] = MMCE_CMD_FS_LSEEK;             //Command
+    wrbuf[0x2] = MMCE_RESERVED;                 //Reserved
+    wrbuf[0x3] = fd;                            //File descriptor
+    wrbuf[0x4] = (offset & 0xFF000000) >> 24;   //Offset
+    wrbuf[0x5] = (offset & 0x00FF0000) >> 16;
+    wrbuf[0x6] = (offset & 0x0000FF00) >> 8;
+    wrbuf[0x7] = (offset & 0x000000FF);
+    wrbuf[0x8] = (u8)(whence);                  //Whence
+
+    //Packet #1: Command, file descriptor, offset, and whence
+    mmce_sio2_lock();
+    res = mmce_sio2_tx_rx_pio(0x9, 0xe, wrbuf, rdbuf, &timeout_500ms);
+    mmce_sio2_unlock();
+    
+    if (res == -1) {
+        DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
+        return -1;
+    }
+
+    if (rdbuf[0x1] != MMCE_REPLY_CONST) {
+        DPRINTF("%s ERROR: Invalid response from card. Got 0x%x, Expected 0x%x\n", __func__, rdbuf[0x1], MMCE_REPLY_CONST);
+        return -1;
+    }
+
+    position  = rdbuf[0x9] << 24;
+    position |= rdbuf[0xa] << 16;
+    position |= rdbuf[0xb] << 8;
+    position |= rdbuf[0xc];
+
+    DPRINTF("%s position %i\n", __func__, position);
+
+    return position;
+}
+
 //For OPL, called through CDVDMAN Device
 void mmcedrv_config_set(int setting, int value)
 {
@@ -171,7 +366,7 @@ void mmcedrv_config_set(int setting, int value)
             if (value < 8)
                 mmcedrv_iso_fd = value;
         break;
-        
+
         case MMCEDRV_SETTING_VMC_FD:
             if (value < 8)
                 mmcedrv_vmc_fd = value;
