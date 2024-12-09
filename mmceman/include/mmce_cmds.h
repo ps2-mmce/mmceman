@@ -44,7 +44,7 @@ enum mmce_cmds_ioctl {
 
 //Called through devctl
 int mmce_cmd_ping(void);
-int mmce_cmd_get_status(void);
+int mmce_cmd_get_status(void *ptr);
 int mmce_cmd_get_card(void);
 int mmce_cmd_set_card(u8 type, u8 mode, u16 num);
 int mmce_cmd_get_channel(void);

@@ -44,7 +44,7 @@ int mmce_cmd_ping(void)
 }
 
 //TODO:
-int mmce_cmd_get_status(void)
+int mmce_cmd_get_status(void *ptr)
 {
     int res;
 
@@ -54,7 +54,7 @@ int mmce_cmd_get_status(void)
     wrbuf[0x0] = MMCE_ID;                //identifier
     wrbuf[0x1] = MMCE_CMD_GET_STATUS;    //command
     wrbuf[0x2] = MMCE_RESERVED;          //reserved byte
-    
+
     mmce_sio2_lock();
     res = mmce_sio2_tx_rx_pio(sizeof(wrbuf), sizeof(rdbuf), wrbuf, rdbuf, &timeout_500ms);
     mmce_sio2_unlock();
@@ -64,7 +64,9 @@ int mmce_cmd_get_status(void)
     }
 
     if (rdbuf[0x1] == MMCE_REPLY_CONST) {
-        res = rdbuf[0x4];
+        ((u8*)ptr)[0] = rdbuf[0x3];
+        ((u8*)ptr)[1] = rdbuf[0x4];
+        res = 0;
     } else {
         DPRINTF("%s ERROR: Invalid response from card. Got 0x%x, Expected 0x%x\n", __func__, rdbuf[0x1], MMCE_REPLY_CONST);
         res = -1;
@@ -151,7 +153,7 @@ int mmce_cmd_get_channel(void)
         DPRINTF("%s ERROR: Timedout waiting for /ACK\n", __func__);
         return -1;
     }
-    
+
     if (rdbuf[0x1] == MMCE_REPLY_CONST) {
         res = rdbuf[0x3] << 8 | rdbuf[0x4];
     } else {
@@ -173,7 +175,7 @@ int mmce_cmd_set_channel(u8 mode, u16 num)
     wrbuf[0x1] = MMCE_CMD_SET_CHANNEL;  //command
     wrbuf[0x2] = MMCE_RESERVED;         //reserved byte
     wrbuf[0x3] = mode;                  //set mode (num, next, prev)
-    wrbuf[0x4] = num >> 8;              //channel number upper 8 bits    
+    wrbuf[0x4] = num >> 8;              //channel number upper 8 bits
     wrbuf[0x5] = num & 0xFF;            //channel number lower 8 bits
 
     mmce_sio2_lock();

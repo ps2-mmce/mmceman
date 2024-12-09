@@ -64,7 +64,7 @@ int mmce_fs_open(iomanX_iop_file_t *file, const char *name, int flags, int mode)
 {
     int res;
 
-    u8 wrbuf[0x5];  
+    u8 wrbuf[0x5];
     u8 rdbuf[0x3];
 
     DPRINTF("%s unit: %i name: %s flags: 0x%x\n", __func__, file->unit, name, flags);
@@ -199,7 +199,7 @@ int mmce_fs_read(iomanX_iop_file_t *file, void *ptr, int size)
     wrbuf[0x1] = MMCE_CMD_FS_READ;          //Command
     wrbuf[0x2] = MMCE_RESERVED;             //Reserved
     wrbuf[0x3] = 0x0;                       //Transfer mode (unimplemented)
-    wrbuf[0x4] = (u8)*(int*)file->privdata; //File Descriptor 
+    wrbuf[0x4] = (u8)*(int*)file->privdata; //File Descriptor
     wrbuf[0x5] = (size & 0xFF000000) >> 24; //Size
     wrbuf[0x6] = (size & 0x00FF0000) >> 16;
     wrbuf[0x7] = (size & 0x0000FF00) >> 8;
@@ -245,7 +245,7 @@ int mmce_fs_read(iomanX_iop_file_t *file, void *ptr, int size)
     }
 
     mmce_sio2_unlock();
-    
+
     bytes_read  = rdbuf[0x1] << 24;
     bytes_read |= rdbuf[0x2] << 16;
     bytes_read |= rdbuf[0x3] << 8;
@@ -278,7 +278,7 @@ int mmce_fs_write(iomanX_iop_file_t *file, void *ptr, int size)
     wrbuf[0x1] = MMCE_CMD_FS_WRITE;         //Command
     wrbuf[0x2] = MMCE_RESERVED;             //Reserved
     wrbuf[0x3] = 0x0;                       //Transfer mode (unimplemented)
-    wrbuf[0x4] = (u8)*(int*)file->privdata; //File Descriptor 
+    wrbuf[0x4] = (u8)*(int*)file->privdata; //File Descriptor
     wrbuf[0x5] = (size & 0xFF000000) >> 24;
     wrbuf[0x6] = (size & 0x00FF0000) >> 16;
     wrbuf[0x7] = (size & 0x0000FF00) >> 8;
@@ -325,9 +325,9 @@ int mmce_fs_write(iomanX_iop_file_t *file, void *ptr, int size)
 
     mmce_sio2_unlock();
 
-    bytes_written  = rdbuf[0x1] << 24;    
-    bytes_written |= rdbuf[0x2] << 16;   
-    bytes_written |= rdbuf[0x3] << 8;   
+    bytes_written  = rdbuf[0x1] << 24;
+    bytes_written |= rdbuf[0x2] << 16;
+    bytes_written |= rdbuf[0x3] << 8;
     bytes_written |= rdbuf[0x4];
 
     if (bytes_written != size) {
@@ -363,7 +363,7 @@ int mmce_fs_lseek(iomanX_iop_file_t *file, int offset, int whence)
     mmce_sio2_lock();
     res = mmce_sio2_tx_rx_pio(0x9, 0xe, wrbuf, rdbuf, &timeout_500ms);
     mmce_sio2_unlock();
-    
+
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
         return -1;
@@ -399,7 +399,7 @@ int mmce_fs_remove(iomanX_iop_file_t *file, const char *name)
     u8 rdbuf[0x3];
 
     DPRINTF("%s name: %s\n", __func__, name);
-    
+
     mmce_fs_update_unit(file->unit);
 
     u8 filename_len = strlen(name) + 1;
@@ -572,7 +572,7 @@ int mmce_fs_dopen(iomanX_iop_file_t *file, const char *name)
 {
     int res;
 
-    u8 wrbuf[0x5];  
+    u8 wrbuf[0x5];
     u8 rdbuf[0x3];
 
     DPRINTF("%s name: %s\n", __func__, name);
@@ -643,23 +643,23 @@ int mmce_fs_dclose(iomanX_iop_file_t *file)
 
     u8 wrbuf[0x5];
     u8 rdbuf[0x6];
- 
+
     DPRINTF("%s fd: %i\n", __func__, (u8)*(int*)file->privdata);
 
     mmce_fs_update_unit(file->unit);
-    
+
     wrbuf[0x0] = MMCE_ID;                   //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_DCLOSE;        //Command
     wrbuf[0x2] = MMCE_RESERVED;             //Reserved
     wrbuf[0x3] = (u8)*(int*)file->privdata; //File descriptor
 
     //Packet #1: Command and file descriptor
-    mmce_sio2_lock();    
+    mmce_sio2_lock();
     res = mmce_sio2_tx_rx_pio(0x4, 0x6, wrbuf, rdbuf, &timeout_500ms);
     mmce_sio2_unlock();
 
     if (res == -1) {
-        DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);        
+        DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
         return -1;
     }
 
@@ -832,7 +832,7 @@ int mmce_fs_getstat(iomanX_iop_file_t *file, const char *name, iox_stat_t *stat)
         return -1;
     }
 
-    //Packet #2: Filename 
+    //Packet #2: Filename
     res = mmce_sio2_tx_rx_pio(len, 0x0, name, NULL, &timeout_500ms);
     if (res == -1) {
         DPRINTF("%s ERROR: P2 - Timedout waiting for /ACK\n", __func__);
@@ -981,9 +981,9 @@ int mmce_fs_devctl(iomanX_iop_file_t *fd, const char *name, int cmd, void *arg, 
         break;
 
         case MMCE_CMD_GET_STATUS:
-            res = mmce_cmd_get_status();
+            res = mmce_cmd_get_status(buf);
         break;
-        
+
         case MMCE_CMD_GET_CARD:
             res = mmce_cmd_get_card();
         break;
@@ -996,7 +996,7 @@ int mmce_fs_devctl(iomanX_iop_file_t *fd, const char *name, int cmd, void *arg, 
 
             res = mmce_cmd_set_card(type, mode, num);
         break;
-        
+
         case MMCE_CMD_GET_CHANNEL:
             res = mmce_cmd_get_channel();
         break;
@@ -1022,7 +1022,7 @@ int mmce_fs_devctl(iomanX_iop_file_t *fd, const char *name, int cmd, void *arg, 
         break;
 
         default:
-        break;    
+        break;
     }
 
     return res;
@@ -1087,10 +1087,10 @@ static iomanX_iop_device_t mmce_dev =
 int mmce_fs_register(void) {
     DPRINTF("Registering %s device\n", mmce_dev.name);
     iomanX_DelDrv(mmce_dev.name);
-    
+
     if (iomanX_AddDrv(&mmce_dev)!= 0)
         return 0;
-    
+
     return 1;
 }
 
