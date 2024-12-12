@@ -40,14 +40,12 @@ static void mmce_init(int port)
             DPRINTF("Revision id: %i\n", (res & 0xFF));
             DPRINTF("Protocol Version: %i\n", (res & 0xFF0000) >> 16);
 
-            /*
-            DPRINTF("Resetting MMCE FS...");
-
-            res = mmce_cmd_fs_reset();
+            DPRINTF("Resetting MMCE FS...\n");
+            res = mmce_cmd_reset();
             if (res != 0) 
                 DPRINTF("Failed: %i\n", res);
             else
-                DPRINTF("Okay\n");*/
+                DPRINTF("Okay\n");
 
             break;
         }
@@ -58,7 +56,7 @@ int __start(int argc, char *argv[])
 {
     int rv;
 
-    printf("Multipurpose Memory Card Emulator Manager (MMCEMAN) v%d.%d by bbsan2k, El_isra, and qnox32\n", MAJOR, MINOR);
+    printf("Multipurpose Memory Card Emulator Manager (MMCEMAN) v%d.%d by the MMCE team\n", MAJOR, MINOR);
 
     //Install hooks
     rv = mmce_sio2_init();

@@ -169,7 +169,7 @@ int mmcedrv_read(int fd, int size, void *ptr)
     wrbuf[0x0] = MMCE_ID;                   //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_READ;          //Command
     wrbuf[0x2] = MMCE_RESERVED;             //Reserved
-    wrbuf[0x3] = 0x0;                       //Transfer mode (unimplemented)
+    wrbuf[0x3] = 0x0;                       //Transfer mode (unused)
     wrbuf[0x4] = fd;                        //File Descriptor 
     wrbuf[0x5] = (size & 0xFF000000) >> 24; //Size
     wrbuf[0x6] = (size & 0x00FF0000) >> 16;
@@ -381,7 +381,7 @@ int __start(int argc, char *argv[])
 {
     int rv;
 
-    printf("Multipurpose Memory Card Emulator Driver (MMCEDRV) v%d.%d\n", MAJOR, MINOR);
+    printf("Multipurpose Memory Card Emulator Driver (MMCEDRV) v%d.%d by the MMCE team\n", MAJOR, MINOR);
 
     //Install hooks
     rv = mmce_sio2_init();

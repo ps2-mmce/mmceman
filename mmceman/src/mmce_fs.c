@@ -981,7 +981,7 @@ int mmce_fs_devctl(iomanX_iop_file_t *fd, const char *name, int cmd, void *arg, 
         break;
 
         case MMCE_CMD_GET_STATUS:
-            res = mmce_cmd_get_status(buf);
+            res = mmce_cmd_get_status();
         break;
 
         case MMCE_CMD_GET_CARD:
@@ -1017,8 +1017,8 @@ int mmce_fs_devctl(iomanX_iop_file_t *fd, const char *name, int cmd, void *arg, 
             res = mmce_cmd_set_gameid(str);
         break;
 
-        case MMCE_CMD_FS_RESET:
-            res = mmce_cmd_fs_reset();
+        case MMCE_CMD_RESET:
+            res = mmce_cmd_reset();
         break;
 
         default:
