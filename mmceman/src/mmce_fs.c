@@ -182,7 +182,6 @@ int mmce_fs_close(iomanX_iop_file_t *file)
     return res;
 }
 
-//TODO: error recovery
 int mmce_fs_read(iomanX_iop_file_t *file, void *ptr, int size)
 {
     int res;
@@ -198,7 +197,7 @@ int mmce_fs_read(iomanX_iop_file_t *file, void *ptr, int size)
     wrbuf[0x0] = MMCE_ID;                   //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_READ;          //Command
     wrbuf[0x2] = MMCE_RESERVED;             //Reserved
-    wrbuf[0x3] = 0x0;                       //Transfer mode (unimplemented)
+    wrbuf[0x3] = 0x0;                       //Transfer mode (unused)
     wrbuf[0x4] = (u8)*(int*)file->privdata; //File Descriptor
     wrbuf[0x5] = (size & 0xFF000000) >> 24; //Size
     wrbuf[0x6] = (size & 0x00FF0000) >> 16;
@@ -277,7 +276,7 @@ int mmce_fs_write(iomanX_iop_file_t *file, void *ptr, int size)
     wrbuf[0x0] = MMCE_ID;                   //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_WRITE;         //Command
     wrbuf[0x2] = MMCE_RESERVED;             //Reserved
-    wrbuf[0x3] = 0x0;                       //Transfer mode (unimplemented)
+    wrbuf[0x3] = 0x0;                       //Transfer mode (unused)
     wrbuf[0x4] = (u8)*(int*)file->privdata; //File Descriptor
     wrbuf[0x5] = (size & 0xFF000000) >> 24;
     wrbuf[0x6] = (size & 0x00FF0000) >> 16;

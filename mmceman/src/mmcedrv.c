@@ -10,6 +10,7 @@
 #include "mmce_fs.h"
 #include "mmce_sio2.h"
 #include "mmcedrv_config.h"
+#include "sio2man_hook.h"
 
 #include "module_debug.h"
 
@@ -371,6 +372,13 @@ void mmcedrv_config_set(int setting, int value)
             if (value < 8)
                 mmcedrv_vmc_fd = value;
         break;
+
+        case MMCEDRV_SETTING_SEMA_ENQ_METHOD:
+            //Default is SA_THPRI (1)
+            if (value != 1) {
+                sio2man_hook_set_sema_enq_method(value);
+            }
+        break;
         
         default:
         break;
@@ -391,10 +399,12 @@ int __start(int argc, char *argv[])
     }
 
     //For Neutrino only, OPL uses config_set export atm
-    DPRINTF("Started with:\n");
-    DPRINTF("Port: %i\n", config.port);
-    DPRINTF("ISO fd: %i\n", config.iso_fd);
-    DPRINTF("VMC fd: %i\n", config.vmc_fd);
+    if (config.port != 0) {
+        DPRINTF("Started with:\n");
+        DPRINTF("Port: %i\n", config.port);
+        DPRINTF("ISO fd: %i\n", config.iso_fd);
+        DPRINTF("VMC fd: %i\n", config.vmc_fd);
+    }
 
     mmce_sio2_set_port(config.port);
     mmcedrv_iso_fd = config.iso_fd;

@@ -420,3 +420,42 @@ void sio2man_hook_sio2_unlock()
     SignalSema(lock_sema2);
     SignalSema(lock_sema);
 }
+
+void sio2man_hook_set_sema_enq_method(int method)
+{
+    int res;
+
+    iop_sema_t new_sema;
+
+    new_sema.attr    = method;
+    new_sema.initial = 1;
+    new_sema.max     = 1;
+    new_sema.option  = 0;
+
+    /* Should be safe to delete semas here as this will
+     * only be called from DeviceFSInit in OPL before
+     * anything is actually using these lock semas */
+    res = DeleteSema(lock_sema);
+    if (res != 0) {
+        DPRINTF("Failed to delete lock_sema\n");
+    }
+
+    res = DeleteSema(lock_sema2);
+    if (res != 0) {
+        DPRINTF("Failed to delete lock_sema2\n");
+    }
+
+    DPRINTF("Creating new semas with enqueuing method: %i\n", method);
+
+    lock_sema = CreateSema(&new_sema);
+    if (lock_sema < 0) {
+        DPRINTF("Failed to create new lock_sema, rv: %i\n", lock_sema);
+    }
+
+    lock_sema2 = CreateSema(&new_sema);
+    if (lock_sema2 < 0) {
+        DPRINTF("Failed to create new lock_sema2, rv: %i\n", lock_sema2);
+    }
+
+    DPRINTF("Successfully created new semas\n");
+}
