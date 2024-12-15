@@ -16,11 +16,14 @@
 #define MAJOR 2
 #define MINOR 1
 
+const char *mmce_product_ids[] = {"Unknown", "SD2PSX", "MemCard PRO2", "PicoMemcard+", "PicoMemcardZero"};
+
 IRX_ID("mmceman", MAJOR, MINOR);
 
 static void mmce_init(int port)
 {
     int res = -1;
+    int id = 0;
 
     mmce_sio2_set_port(port);
 
@@ -29,18 +32,17 @@ static void mmce_init(int port)
         if (res != -1) {
             DPRINTF("Found card in port %i\n", port);
 
-            if (((res & 0xFF00) >> 8) == 1) {
-                DPRINTF("Product id: 1 (SD2PSX)\n");
-            } else if (((res & 0xFF00) >> 8) == 2) {
-                DPRINTF("Product id: 2 (MemCard PRO2)\n");
+            id = (res & 0xFF00) >> 8;
+            if (id < 5) {
+                DPRINTF("Product ID: %i (%s)\n", id, mmce_product_ids[id]);
             } else {
-                DPRINTF("Product id: %i (unknown)\n", ((res & 0xFF00) >> 8));
+                DPRINTF("Unknown Product ID: %i\n", id);
             }
 
-            DPRINTF("Revision id: %i\n", (res & 0xFF));
+            DPRINTF("Revision ID: %i\n", (res & 0xFF));
             DPRINTF("Protocol Version: %i\n", (res & 0xFF0000) >> 16);
 
-            DPRINTF("Resetting MMCE FS...\n");
+            DPRINTF("Resetting MMCE FS...");
             res = mmce_cmd_reset();
             if (res != 0) 
                 DPRINTF("Failed: %i\n", res);
