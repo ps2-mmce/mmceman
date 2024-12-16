@@ -7,12 +7,11 @@
 #define MODNAME "mmcedrv"
 #endif
 
-#define DEBUG
+//#define DEBUG
 
 #ifdef DEBUG
 #include <stdio.h>
 #define DPRINTF(fmt, x...) printf(MODNAME": "fmt, ##x)
-//#define DPRINTF(x...) 
 #else
 #define DPRINTF(x...) 
 #endif
