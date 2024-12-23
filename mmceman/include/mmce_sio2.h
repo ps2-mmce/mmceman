@@ -22,6 +22,9 @@ void mmce_sio2_unlock();
 //Assign port and update global td
 void mmce_sio2_set_port(int port);
 
+//Update PCTRL1_INTER_BYTE_PER value
+void mmce_sio2_update_ack_wait_cycles(int cycles);
+
 //Get currently assigned port
 int mmce_sio2_get_port();
 
@@ -39,5 +42,7 @@ int mmce_sio2_tx_mixed(u8 *buffer, u32 size);
 
 //Poll card
 int mmce_sio2_wait_equal(u8 value, u32 timeout);
+
+
 
 #endif

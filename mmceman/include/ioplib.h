@@ -14,7 +14,6 @@
 #ifndef IOPLIB_H
 #define IOPLIB_H
 
-
 #include <loadcore.h>
 
 /** @brief get library object of any IRX Module

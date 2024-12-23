@@ -5,11 +5,15 @@
 #include <thevent.h>
 #include <intrman.h>
 
+
+#include <stdio.h>
+
 #include "ioplib.h"
 #include "irx_imports.h"
+#include "iop_regs.h"
 
-#include "sio2man_hook.h"
 #include "mmce_sio2.h"
+#include "sio2man_hook.h"
 
 #include "module_debug.h"
 
@@ -117,16 +121,27 @@ void mmce_sio2_set_port(int port)
         mmce_sio2_port_ctrl1[i] = 0;
         mmce_sio2_port_ctrl2[i] = 0;
     }
-
+    
     mmce_sio2_port_ctrl1[port] =
         PCTRL0_ATT_LOW_PER(0x5)      |
-        PCTRL0_ATT_MIN_HIGH_PER(0x5) |
+        PCTRL0_ATT_MIN_HIGH_PER(0x0) |
         PCTRL0_BAUD0_DIV(0x2)        |
         PCTRL0_BAUD1_DIV(0xff);
 
     mmce_sio2_port_ctrl2[port] =
         PCTRL1_ACK_TIMEOUT_PER(0xffff)|
         PCTRL1_INTER_BYTE_PER(0x5)    |
+        PCTRL1_UNK24(0x0)             |
+        PCTRL1_IF_MODE_SPI_DIFF(0x0);
+}
+
+void mmce_sio2_update_ack_wait_cycles(int cycles)
+{
+    DPRINTF("mmceman: setting cycles to: 0x%x\n", cycles);
+
+    mmce_sio2_port_ctrl2[mmce_port] =
+        PCTRL1_ACK_TIMEOUT_PER(0xffff)|
+        PCTRL1_INTER_BYTE_PER(cycles) |
         PCTRL1_UNK24(0x0)             |
         PCTRL1_IF_MODE_SPI_DIFF(0x0);
 }
@@ -176,9 +191,6 @@ void mmce_sio2_unlock()
 {
     int state;
     int res;
-
-    //Restore ctrl state, and reset STATE + FIFOS
-    inl_sio2_ctrl_set(sio2_save_ctrl | 0xc);
 
     CpuSuspendIntr(&state);
     

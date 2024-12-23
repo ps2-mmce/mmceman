@@ -362,7 +362,7 @@ void mmcedrv_config_set(int setting, int value)
             else
                 DPRINTF("Invalid port setting: %i\n", value);
         break;
-        
+
         case MMCEDRV_SETTING_ISO_FD:
             if (value < 8)
                 mmcedrv_iso_fd = value;
@@ -373,10 +373,9 @@ void mmcedrv_config_set(int setting, int value)
                 mmcedrv_vmc_fd = value;
         break;
 
-        case MMCEDRV_SETTING_SEMA_ENQ_METHOD:
-            //Default is SA_THPRI (1)
-            if (value != 1) {
-                sio2man_hook_set_sema_enq_method(value);
+        case MMCEDRV_SETTING_ACK_WAIT_CYCLES:
+            if (value < 5) {
+                mmce_sio2_update_ack_wait_cycles(value);
             }
         break;
         
