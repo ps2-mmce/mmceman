@@ -39,7 +39,7 @@ int (*mmce_sio2_intr_handler_ptr)(void *arg) = NULL;
 void *mmce_sio2_intr_arg_ptr = NULL;
 
 iop_sys_clock_t timeout_200ms;
-iop_sys_clock_t timeout_500ms;
+iop_sys_clock_t timeout_1s;
 iop_sys_clock_t timeout_2s;
 
 int mmce_sio2_intr_handler(void *arg)
@@ -98,8 +98,8 @@ int mmce_sio2_init()
     //200ms
     USec2SysClock(200000, &timeout_200ms);
 
-    //500ms
-    USec2SysClock(500000, &timeout_500ms);
+    //1s
+    USec2SysClock(1000000, &timeout_1s);
 
     //2s
     USec2SysClock(2000000, &timeout_2s);

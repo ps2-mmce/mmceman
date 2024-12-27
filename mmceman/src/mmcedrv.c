@@ -51,7 +51,7 @@ s64 mmcedrv_get_size()
 
     //Packet #1: Command, file descriptor, offset, and whence
     mmce_sio2_lock();
-    res = mmce_sio2_tx_rx_pio(0xd, 0x16, wrbuf, rdbuf, &timeout_500ms);
+    res = mmce_sio2_tx_rx_pio(0xd, 0x16, wrbuf, rdbuf, &timeout_1s);
     mmce_sio2_unlock();
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
@@ -109,7 +109,7 @@ int mmcedrv_read_sector(int type, u32 sector, u32 count, void *buffer)
     mmce_sio2_lock();
 
     //Packet #1: Command, file descriptor, and size
-    res = mmce_sio2_tx_rx_pio(0xB, 0xB, wrbuf, rdbuf, &timeout_500ms);
+    res = mmce_sio2_tx_rx_pio(0xB, 0xB, wrbuf, rdbuf, &timeout_2s);
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -137,7 +137,7 @@ int mmcedrv_read_sector(int type, u32 sector, u32 count, void *buffer)
     }
 
     //Packet #n + 1: Sectors read
-    res = mmce_sio2_tx_rx_pio(0x0, 0x5, wrbuf, rdbuf, &timeout_500ms);
+    res = mmce_sio2_tx_rx_pio(0x0, 0x5, wrbuf, rdbuf, &timeout_1s);
     if (res == -1) {
         DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -209,7 +209,7 @@ int mmcedrv_read(int fd, int size, void *ptr)
     }
 
     //Packet #n + 1: Bytes read
-    res = mmce_sio2_tx_rx_pio(0x0, 0x6, wrbuf, rdbuf, &timeout_500ms);
+    res = mmce_sio2_tx_rx_pio(0x0, 0x6, wrbuf, rdbuf, &timeout_1s);
     if (res == -1) {
         DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -258,7 +258,7 @@ int mmcedrv_write(int fd, int size, void *ptr)
     mmce_sio2_lock();
 
     //Packet #1: Command, file descriptor, and size
-    res = mmce_sio2_tx_rx_pio(0xA, 0xA, wrbuf, rdbuf, &timeout_500ms);
+    res = mmce_sio2_tx_rx_pio(0xA, 0xA, wrbuf, rdbuf, &timeout_1s);
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -286,7 +286,7 @@ int mmcedrv_write(int fd, int size, void *ptr)
     }
 
     //Packets #n + 1: Bytes written
-    res = mmce_sio2_tx_rx_pio(0x0, 0x6, wrbuf, rdbuf, &timeout_500ms);
+    res = mmce_sio2_tx_rx_pio(0x0, 0x6, wrbuf, rdbuf, &timeout_1s);
     if (res == -1) {
         DPRINTF("%s ERROR: P3 - Timedout waiting for /ACK\n", __func__);
         mmce_sio2_unlock();
@@ -329,7 +329,7 @@ int mmcedrv_lseek(int fd, int offset, int whence)
 
     //Packet #1: Command, file descriptor, offset, and whence
     mmce_sio2_lock();
-    res = mmce_sio2_tx_rx_pio(0x9, 0xe, wrbuf, rdbuf, &timeout_500ms);
+    res = mmce_sio2_tx_rx_pio(0x9, 0xe, wrbuf, rdbuf, &timeout_1s);
     mmce_sio2_unlock();
     
     if (res == -1) {

@@ -5,7 +5,7 @@
 #include <thbase.h>
 
 extern iop_sys_clock_t timeout_200ms;
-extern iop_sys_clock_t timeout_500ms;
+extern iop_sys_clock_t timeout_1s;
 extern iop_sys_clock_t timeout_2s;
 
 int mmce_sio2_init();
