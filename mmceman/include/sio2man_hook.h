@@ -10,9 +10,6 @@ void sio2man_hook_deinit();
 void sio2man_hook_sio2_lock();
 void sio2man_hook_sio2_unlock();
 
-//Change lock semas enqueuing method (SA_THFIFO or SA_THPRI)
-void sio2man_hook_set_sema_enq_method(int method);
-
 //SIO2MAN's intr handler
 extern int (*sio2man_intr_handler_ptr)(void *arg);
 extern void *sio2man_intr_arg_ptr;

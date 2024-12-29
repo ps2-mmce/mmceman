@@ -388,7 +388,7 @@ int __start(int argc, char *argv[])
 {
     int rv;
 
-    printf("Multipurpose Memory Card Emulator Driver (MMCEDRV) v%d.%d by the MMCE team\n", MAJOR, MINOR);
+    DPRINTF("Multipurpose Memory Card Emulator Driver (MMCEDRV) v%d.%d by the MMCE team\n", MAJOR, MINOR);
 
     //Install hooks
     rv = mmce_sio2_init();
