@@ -129,9 +129,9 @@ void mmce_sio2_set_port(int port)
         PCTRL0_BAUD1_DIV(0xff);
 
     mmce_sio2_port_ctrl2[port] =
-        PCTRL1_ACK_TIMEOUT_PER(0xffff)|
-        PCTRL1_INTER_BYTE_PER(0x5)    |
-        PCTRL1_UNK24(0x0)             |
+        PCTRL1_ACK_TIMEOUT_AFTER(0xffff)        |
+        PCTRL1_WAIT_CYCLES_AFTER_ACK_LOW(0x5)   |
+        PCTRL1_UNK24(0x0)                       |
         PCTRL1_IF_MODE_SPI_DIFF(0x0);
 }
 
@@ -140,9 +140,9 @@ void mmce_sio2_update_ack_wait_cycles(int cycles)
     DPRINTF("mmceman: setting cycles to: 0x%x\n", cycles);
 
     mmce_sio2_port_ctrl2[mmce_port] =
-        PCTRL1_ACK_TIMEOUT_PER(0xffff)|
-        PCTRL1_INTER_BYTE_PER(cycles) |
-        PCTRL1_UNK24(0x0)             |
+        PCTRL1_ACK_TIMEOUT_AFTER(0xffff)        |
+        PCTRL1_WAIT_CYCLES_AFTER_ACK_LOW(cycles)|
+        PCTRL1_UNK24(0x0)                       |
         PCTRL1_IF_MODE_SPI_DIFF(0x0);
 }
 

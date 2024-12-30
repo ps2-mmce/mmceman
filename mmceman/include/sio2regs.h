@@ -48,13 +48,29 @@
 
 // Bit-field definitions:
 
+/* /ATT (/CS) HIGH between 2 transfers in the SIO2 transfer queue
+* This value is patched to 0x60 on PS2's w/ PPC-IOPs */
 #define PCTRL0_ATT_LOW_PER(x)      ((((u32)(x)) << 0) & 0xFF)
 #define PCTRL0_ATT_MIN_HIGH_PER(x) ((((u32)(x)) << 8) & 0xFF00)
 #define PCTRL0_BAUD0_DIV(x)        ((((u32)(x)) << 16) & 0xFF0000)
 #define PCTRL0_BAUD1_DIV(x)        ((((u32)(x)) << 24) & 0xFF000000)
 
-#define PCTRL1_ACK_TIMEOUT_PER(x)  ((((u32)(x)) << 0) & 0xFFFF)
-#define PCTRL1_INTER_BYTE_PER(x)   ((((u32)(x)) << 16) & 0xFF0000)
+/* If CTRL_USE_ACK_WAIT_TIMEOUT is 1, this determines how many clock cycles
+ * the SIO2 will wait for an occurence of /ACK low before aborting the current transfer 
+ 
+ * Ex: Clock of 24MHz, period of ~41ns, PCTRL1_ACK_TIMEOUT_AFTER of 50 =
+    41ns * 50 = 2050ns, The SIO2 will wait 2050ns for /ACK low before timing out */
+#define PCTRL1_ACK_TIMEOUT_AFTER(x)  ((((u32)(x)) << 0) & 0xFFFF)
+
+/* Note: PCTRL1_WAIT_CYCLES_AFTER_ACK_LOW:
+ * The time between /ACK falling edge -> next /CLK falling edge in clock cycles.
+ * FATs appear to have a ~120ns delay between the rising edge of
+ * the last clock to the start of /ACK low sampling, making the total
+ * time between 2 bytes closer to ~120ns + (WAIT_CYCLES_AFTER_ACK_LOW * clock cycles) 
+ * 
+ * PS2's w/ PPC-IOPs appear to start /ACK low sampling after 41ns (or 1 * 24MHz clock cycle) 
+ * but seem to have a minimum time between the /ACK falling edge -> next /CLK falling edge */
+#define PCTRL1_WAIT_CYCLES_AFTER_ACK_LOW(x)   ((((u32)(x)) << 16) & 0xFF0000)
 #define PCTRL1_UNK24(x)            ((((u32)(x))&1) << 24)
 #define PCTRL1_IF_MODE_SPI_DIFF(x) ((((u32)(x))&1) << 25)
 
