@@ -8,6 +8,8 @@ extern iop_sys_clock_t timeout_200ms;
 extern iop_sys_clock_t timeout_1s;
 extern iop_sys_clock_t timeout_2s;
 
+extern u8 mmce_sio2_use_alarm;
+
 int mmce_sio2_init();
 
 //Remove hooks and deinit

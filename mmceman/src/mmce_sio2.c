@@ -5,9 +5,6 @@
 #include <thevent.h>
 #include <intrman.h>
 
-
-#include <stdio.h>
-
 #include "ioplib.h"
 #include "irx_imports.h"
 #include "iop_regs.h"
@@ -21,11 +18,10 @@
 #define EF_SIO2_TRANSFER_TIMEOUT    0x00000400
 
 static int mmce_port;
-static int mmce_slot;
 
 //Port ctrl settings used for all transfers
-static u32 mmce_sio2_port_ctrl1[4];
-static u32 mmce_sio2_port_ctrl2[4];
+static u32 mmce_sio2_port_ctrl1;
+static u32 mmce_sio2_port_ctrl2;
 
 static u32 sio2_save_ctrl;
 static int event_flag = -1;
@@ -42,12 +38,14 @@ iop_sys_clock_t timeout_200ms;
 iop_sys_clock_t timeout_1s;
 iop_sys_clock_t timeout_2s;
 
+u8 mmce_sio2_use_alarm = 1;
+
 int mmce_sio2_intr_handler(void *arg)
 {
 	int ef = *(int *)arg;
 
-	inl_sio2_stat_set(inl_sio2_stat_get());
-    
+	inl_sio2_stat_set(0x3);
+
 	iSetEventFlag(ef, EF_SIO2_INTR_COMPLETE);
 
 	return 1;
@@ -95,14 +93,32 @@ int mmce_sio2_init()
     sceEnableDMAChannel(IOP_DMAC_SIO2in);
     sceEnableDMAChannel(IOP_DMAC_SIO2out);
 
+    //Ensure SIO2 intrs are enabled
+    EnableIntr(IOP_IRQ_SIO2);
+
     //200ms
-    USec2SysClock(200000, &timeout_200ms);
+    timeout_200ms.hi = 0x0;
+    timeout_200ms.lo = 0x708000;
 
     //1s
-    USec2SysClock(1000000, &timeout_1s);
+    timeout_1s.hi = 0x0;
+    timeout_1s.lo = 0x2328000;
 
     //2s
-    USec2SysClock(2000000, &timeout_2s);
+    timeout_2s.hi = 0x0;
+    timeout_2s.lo = 0x4650000;
+
+    mmce_sio2_port_ctrl1 =
+        PCTRL0_ATT_LOW_PER(0x5)      |
+        PCTRL0_ATT_MIN_HIGH_PER(0x0) |
+        PCTRL0_BAUD0_DIV(0x2)        |
+        PCTRL0_BAUD1_DIV(0xff);
+
+    mmce_sio2_port_ctrl2 =
+        PCTRL1_ACK_TIMEOUT_AFTER(0xffff)        |
+        PCTRL1_WAIT_CYCLES_AFTER_ACK_LOW(0x5)   |
+        PCTRL1_UNK24(0x0)                       |
+        PCTRL1_IF_MODE_SPI_DIFF(0x0);
 
     return 0;
 }
@@ -116,34 +132,6 @@ void mmce_sio2_deinit()
 void mmce_sio2_set_port(int port)
 {
     mmce_port = port;
-
-    for (u8 i = 0; i < 4; i++) {
-        mmce_sio2_port_ctrl1[i] = 0;
-        mmce_sio2_port_ctrl2[i] = 0;
-    }
-    
-    mmce_sio2_port_ctrl1[port] =
-        PCTRL0_ATT_LOW_PER(0x5)      |
-        PCTRL0_ATT_MIN_HIGH_PER(0x0) |
-        PCTRL0_BAUD0_DIV(0x2)        |
-        PCTRL0_BAUD1_DIV(0xff);
-
-    mmce_sio2_port_ctrl2[port] =
-        PCTRL1_ACK_TIMEOUT_AFTER(0xffff)        |
-        PCTRL1_WAIT_CYCLES_AFTER_ACK_LOW(0x5)   |
-        PCTRL1_UNK24(0x0)                       |
-        PCTRL1_IF_MODE_SPI_DIFF(0x0);
-}
-
-void mmce_sio2_update_ack_wait_cycles(int cycles)
-{
-    DPRINTF("mmceman: setting cycles to: 0x%x\n", cycles);
-
-    mmce_sio2_port_ctrl2[mmce_port] =
-        PCTRL1_ACK_TIMEOUT_AFTER(0xffff)        |
-        PCTRL1_WAIT_CYCLES_AFTER_ACK_LOW(cycles)|
-        PCTRL1_UNK24(0x0)                       |
-        PCTRL1_IF_MODE_SPI_DIFF(0x0);
 }
 
 int mmce_sio2_get_port()
@@ -151,18 +139,20 @@ int mmce_sio2_get_port()
     return mmce_port;
 }
 
-static inline void mmce_sio2_reg_set_pctrl()
+void mmce_sio2_update_ack_wait_cycles(int cycles)
 {
-    for (u8 i = 0; i < 4; i++) {
-        inl_sio2_portN_ctrl1_set(i, mmce_sio2_port_ctrl1[i]);
-        inl_sio2_portN_ctrl2_set(i, mmce_sio2_port_ctrl2[i]);
-    }
+    DPRINTF("mmceman: setting cycles to: 0x%x\n", cycles);
+
+    mmce_sio2_port_ctrl2 =
+        PCTRL1_ACK_TIMEOUT_AFTER(0xffff)        |
+        PCTRL1_WAIT_CYCLES_AFTER_ACK_LOW(cycles)|
+        PCTRL1_UNK24(0x0)                       |
+        PCTRL1_IF_MODE_SPI_DIFF(0x0);
 }
 
 void mmce_sio2_lock()
 {
     int state;
-    int res;
 
     //Lock sio2man driver so we can use it exclusively
     sio2man_hook_sio2_lock();
@@ -171,40 +161,23 @@ void mmce_sio2_lock()
 
     //Swap SIO2MAN's intr handler with ours
     CpuSuspendIntr(&state);
-
-    DisableIntr(IOP_IRQ_DMA_SIO2_OUT, &res);
-    DisableIntr(IOP_IRQ_DMA_SIO2_IN, &res);
-
-    DisableIntr(IOP_IRQ_SIO2, &res);
-    ReleaseIntrHandler(IOP_IRQ_SIO2);
-
-    RegisterIntrHandler(IOP_IRQ_SIO2, 1, mmce_sio2_intr_handler, &event_flag);
-    EnableIntr(IOP_IRQ_SIO2);
-
+    mmce_sio2_intrman_internals_ptr->interrupt_handler_table[17].handler = mmce_sio2_intr_handler_ptr; 
+    mmce_sio2_intrman_internals_ptr->interrupt_handler_table[17].userdata = mmce_sio2_intr_arg_ptr;
     CpuResumeIntr(state);
 
     //Copy port ctrl settings to SIO2 registers
-    mmce_sio2_reg_set_pctrl();
+    inl_sio2_portN_ctrl1_set(mmce_port, mmce_sio2_port_ctrl1);
+    inl_sio2_portN_ctrl2_set(mmce_port, mmce_sio2_port_ctrl2);
 }
 
 void mmce_sio2_unlock()
 {
     int state;
-    int res;
 
+    //Swap our intr handler with SIO2MAN's intr handler
     CpuSuspendIntr(&state);
-    
-    DisableIntr(IOP_IRQ_SIO2, &res);
-    ReleaseIntrHandler(IOP_IRQ_SIO2);
-
-    if (sio2man_intr_handler_ptr != NULL) {
-        RegisterIntrHandler(IOP_IRQ_SIO2, 1, sio2man_intr_handler_ptr, sio2man_intr_arg_ptr);
-        EnableIntr(IOP_IRQ_SIO2);
-    }
-
-    DisableIntr(IOP_IRQ_DMA_SIO2_OUT, &res);
-    DisableIntr(IOP_IRQ_DMA_SIO2_IN, &res);
-
+    mmce_sio2_intrman_internals_ptr->interrupt_handler_table[17].handler = sio2man_intr_handler_ptr; 
+    mmce_sio2_intrman_internals_ptr->interrupt_handler_table[17].userdata = sio2man_intr_arg_ptr;
     CpuResumeIntr(state);
 
     //Restore ctrl state, and reset STATE + FIFOS
@@ -231,9 +204,8 @@ int mmce_sio2_tx_rx_pio(u8 tx_size, u8 rx_size, u8 *tx_buf, u8 *rx_buf, iop_sys_
                         TR_CTRL_SPECIAL_TR(0)       |
                         TR_CTRL_BAUD_DIV(0)         |
                         TR_CTRL_WAIT_ACK_FOREVER(0) |
-                        TR_CTRL_TX_DATA_SZ(tx_size)|
+                        TR_CTRL_TX_DATA_SZ(tx_size) |
                         TR_CTRL_RX_DATA_SZ(rx_size));
-    inl_sio2_regN_set(1, 0);
 
     //Copy data to TX FIFO
     for (int i = 0; i < tx_size; i++) {
@@ -241,7 +213,7 @@ int mmce_sio2_tx_rx_pio(u8 tx_size, u8 rx_size, u8 *tx_buf, u8 *rx_buf, iop_sys_
     }
 
     //Start transfer
-    inl_sio2_ctrl_set(inl_sio2_ctrl_get() | 1);
+    inl_sio2_ctrl_set(0x3a1);
 
     //Set timeout alarm
     SetAlarm(timeout, mmce_sio2_timeout_handler, &event_flag);
@@ -264,11 +236,6 @@ int mmce_sio2_tx_rx_pio(u8 tx_size, u8 rx_size, u8 *tx_buf, u8 *rx_buf, iop_sys_
     //Copy data out of RX FIFO
     for (int i = 0; i < rx_size; i++) {
         rx_buf[i] = inl_sio2_data_in();
-    }
-
-    //Check timeout bit
-    if ((inl_sio2_stat6c_get() & 0x8000) != 0) {
-        return -1;
     }
 
     return 0;
@@ -309,14 +276,15 @@ int mmce_sio2_rx_dma(u8 *buffer, u32 size)
         }
 
         //Start DMA transfer
-        dmac_request(IOP_DMAC_SIO2out, &buffer[elements_done * 256], 0x100 >> 2, elements_do, DMAC_TO_MEM);
-        dmac_transfer(IOP_DMAC_SIO2out);
+        sceSetSliceDMA(IOP_DMAC_SIO2out, &buffer[elements_done * 256], 0x100 >> 2, elements_do, DMAC_TO_MEM);
+        sceStartDMA(IOP_DMAC_SIO2out);
 
         //Start the transfer
-        inl_sio2_ctrl_set(inl_sio2_ctrl_get() | 1);
+        inl_sio2_ctrl_set(0x3a1);
 
         //Set timeout alarm
-        SetAlarm(&timeout_2s, mmce_sio2_timeout_handler, &event_flag);
+        if (mmce_sio2_use_alarm)
+            SetAlarm(&timeout_2s, mmce_sio2_timeout_handler, &event_flag);
 
         //Wait for completion or timeout
         WaitEventFlag(event_flag, EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE, 1, &resbits);
@@ -326,9 +294,10 @@ int mmce_sio2_rx_dma(u8 *buffer, u32 size)
             ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
             return -1;
         }
-        
+
         //Cancel timeout alarm
-        CancelAlarm(mmce_sio2_timeout_handler,  &event_flag);
+        if (mmce_sio2_use_alarm)
+            CancelAlarm(mmce_sio2_timeout_handler,  &event_flag);
         
         //Clear flags
         ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
@@ -402,27 +371,23 @@ int mmce_sio2_rx_mixed(u8 *buffer, u32 size)
             if (pio_size != 0x0) {
                 inl_sio2_regN_set(elements_do, pio_element);
 
-                if (elements_do + 1 < 16) {
-                    inl_sio2_regN_set(elements_do + 1, 0x0);
-                }
                 offset_pio = bytes_done;
                 bytes_done += pio_size;
-            } else {
-                inl_sio2_regN_set(elements_do, 0x0); //Term transfer queue
             }
         }
 
         //Start DMA transfer if needed
         if (elements_do != 0) {
-            dmac_request(IOP_DMAC_SIO2out, &buffer[offset], 0x100 >> 2, elements_do, DMAC_TO_MEM);
-            dmac_transfer(IOP_DMAC_SIO2out);
+            sceSetSliceDMA(IOP_DMAC_SIO2out, &buffer[offset], 0x100 >> 2, elements_do, DMAC_TO_MEM);
+            sceStartDMA(IOP_DMAC_SIO2out);
         }
 
         //Start the transfer
-        inl_sio2_ctrl_set(inl_sio2_ctrl_get() | 1);
+        inl_sio2_ctrl_set(0x3a1);
 
         //Set timeout alarm
-        SetAlarm(&timeout_2s, mmce_sio2_timeout_handler, &event_flag);
+        if (mmce_sio2_use_alarm)
+            SetAlarm(&timeout_2s, mmce_sio2_timeout_handler, &event_flag);
 
         //Wait for completion or timeout
         WaitEventFlag(event_flag, EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE, 1, &resbits);
@@ -434,7 +399,8 @@ int mmce_sio2_rx_mixed(u8 *buffer, u32 size)
         }
 
         //Cancel timeout alarm
-        CancelAlarm(mmce_sio2_timeout_handler,  &event_flag);
+        if (mmce_sio2_use_alarm)
+            CancelAlarm(mmce_sio2_timeout_handler,  &event_flag);
 
         //Clear flags
         ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
@@ -467,7 +433,7 @@ int mmce_sio2_tx_mixed(u8 *buffer, u32 size)
     u32 bytes_done = 0;
     u32 elements_do = 0;
 
-    u8 polling = 1;
+    u8 waiting = 1;
     u8 rx_buf[3];
 
     //used for all elements 256 bytes in size
@@ -482,7 +448,7 @@ int mmce_sio2_tx_mixed(u8 *buffer, u32 size)
                       TR_CTRL_TX_DATA_SZ(256)         |
                       TR_CTRL_RX_DATA_SZ(0);
 
-    //used to all elements less than 256 bytes in size
+    //used for all elements less than 256 bytes in size
     u32 pio_element = TR_CTRL_PORT_NR(mmce_port)      |
                       TR_CTRL_PAUSE(0)                |
                       TR_CTRL_TX_MODE_PIO_DMA(0)      |
@@ -495,8 +461,8 @@ int mmce_sio2_tx_mixed(u8 *buffer, u32 size)
                       TR_CTRL_RX_DATA_SZ(0);
 
     while(1) {
-        //Polling stage
-        if (polling == 1) {
+        //Waiting stage
+        if (waiting == 1) {
             res = mmce_sio2_tx_rx_pio(0, 2, NULL, rx_buf, &timeout_2s);
             if (res == -1) {
                 DPRINTF("%s ERROR: Timed out waiting for ready\n", __func__);
@@ -507,10 +473,10 @@ int mmce_sio2_tx_mixed(u8 *buffer, u32 size)
                 break;
 
             //Move to transfer stage
-            polling = 0;
+            waiting = 0;
 
         //Transfer stage
-        } else if (polling == 0) {
+        } else if (waiting == 0) {
             elements_do = elements > 16 ? 16 : elements;
 
             //Full 4KB DMA transfer
@@ -522,14 +488,14 @@ int mmce_sio2_tx_mixed(u8 *buffer, u32 size)
                     inl_sio2_regN_set(i, dma_element);
                 }
 
-                dmac_request(IOP_DMAC_SIO2in, &buffer[bytes_done], 0x100 >> 2, elements_do, DMAC_FROM_MEM);
-                dmac_transfer(IOP_DMAC_SIO2in);
+                sceSetSliceDMA(IOP_DMAC_SIO2in, &buffer[bytes_done], 0x100 >> 2, elements_do, DMAC_FROM_MEM);
+                sceStartDMA(IOP_DMAC_SIO2in);
 
                 bytes_done += elements_do * 256;
                 elements -= elements_do;
 
                 //Start the transfer
-                inl_sio2_ctrl_set(inl_sio2_ctrl_get() | 1);
+                inl_sio2_ctrl_set(0x3a1);
 
                 //Set timeout alarm
                 SetAlarm(&timeout_2s, mmce_sio2_timeout_handler, &event_flag);
@@ -549,7 +515,7 @@ int mmce_sio2_tx_mixed(u8 *buffer, u32 size)
                 //Clear flags
                 ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
 
-                polling = 1;
+                waiting = 1;
 
             //Sub 4KB DMA transfer
             } else {
@@ -563,16 +529,14 @@ int mmce_sio2_tx_mixed(u8 *buffer, u32 size)
                         inl_sio2_regN_set(i, dma_element);
                     }
 
-                    inl_sio2_regN_set(elements_do, 0);
-
-                    dmac_request(IOP_DMAC_SIO2in, &buffer[bytes_done], 0x100 >> 2, elements_do, DMAC_FROM_MEM);
-                    dmac_transfer(IOP_DMAC_SIO2in);
+                    sceSetSliceDMA(IOP_DMAC_SIO2in, &buffer[bytes_done], 0x100 >> 2, elements_do, DMAC_FROM_MEM);
+                    sceStartDMA(IOP_DMAC_SIO2in);
 
                     bytes_done += elements_do * 256;
                     elements -= elements_do;
 
                     //Start the transfer
-                    inl_sio2_ctrl_set(inl_sio2_ctrl_get() | 1);
+                    inl_sio2_ctrl_set(0x3a1);
 
                     //Set timeout alarm
                     SetAlarm(&timeout_2s, mmce_sio2_timeout_handler, &event_flag);
@@ -599,7 +563,6 @@ int mmce_sio2_tx_mixed(u8 *buffer, u32 size)
                     inl_sio2_ctrl_set(0x3ac);
                     
                     inl_sio2_regN_set(0, pio_element);
-                    inl_sio2_regN_set(1, 0);
 
                     //Place data TX FIFO
                     for (int i = 0; i < pio_size; i++) {
@@ -610,7 +573,7 @@ int mmce_sio2_tx_mixed(u8 *buffer, u32 size)
                     pio_size = 0;
 
                     //Start the transfer
-                    inl_sio2_ctrl_set(inl_sio2_ctrl_get() | 1);
+                    inl_sio2_ctrl_set(0x3a1);
 
                     //Set timeout alarm
                     SetAlarm(&timeout_2s, mmce_sio2_timeout_handler, &event_flag);
@@ -630,7 +593,7 @@ int mmce_sio2_tx_mixed(u8 *buffer, u32 size)
                     //Clear flags
                     ClearEventFlag(event_flag, ~(EF_SIO2_TRANSFER_TIMEOUT | EF_SIO2_INTR_COMPLETE));
                 }
-                polling = 1;
+                waiting = 1;
             }
 
         }

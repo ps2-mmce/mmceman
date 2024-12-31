@@ -8,13 +8,14 @@
 #include "sio2man.h"
 #include "sio2man_hook.h"
 
-
 // #define DEBUG  //comment out this line when not debugging
 #include "module_debug.h"
 
 static int lock_sema      = -1;
 static int lock_sema2     = -1;
 static u16 hooked_version = 0;
+
+intrman_internals_t *mmce_sio2_intrman_internals_ptr = NULL;
 
 // sio2man function typedefs
 typedef void (*psio2_transfer_init)(void);
@@ -49,135 +50,9 @@ static int _sio2_transfer(psio2_transfer transfer_func, sio2_transfer_data_t *td
  
     //DPRINTF("%s\n", __FUNCTION__);
 
-#ifdef LOG_MC_ACCESS
-    int McPort = 0;
-    int baud_div[0x2];
-
-    for (int i = 0; i < 16; i++) {
-        // Last transfer
-        if (td->regdata[i] == 0)
-            break;
-
-        // Memory Card
-        if ((td->regdata[i] & 3) == 2)
-            McPort = 2;
-
-        if ((td->regdata[i] & 3) == 3)
-            McPort = 3;
-    }
-
-    //Dump memory card transfers
-    if (McPort != 0) {
-        DPRINTF("======MC TRANSFER ON PORT %i START======\n", McPort);
-        WaitSema(lock_sema2);
-        rv = transfer_func(td);
-
-        baud_div[0] = (td->port_ctrl1[McPort] & 0xFF0000) >> 16;
-        baud_div[1] = (td->port_ctrl1[McPort] & 0xFF000000) >> 24;
-
-        for (int i = 0; i < 16; i++) {
-            if (td->regdata[i] == 0)
-                break;
-
-            DPRINTF("Transfer Element %i Baud Div: 0x%x\n", i, baud_div[((td->regdata[i] & 0x40000000) >> 30)]);
-        }
-
-        //Formatted
-        if (td->in_size == td->out_size && td->in_size != 0) {
-            printf("\tSend: Recv:\n");
-
-            for (int i = 0; i < td->in_size; i++) {
-                printf("Byte %i: 0x%.2x, 0x%.2x\n", i, td->in[i], td->out[i]);
-            }
-            printf("\n");
-        
-        //Unformatted dump
-        } else {
-            if (td->in_size != 0) {
-                printf("Send:");
-                for (int i = 0; i < td->in_size; i++) {
-                    printf("0x%.2x, ", td->in[i]);
-                    if (((i + 1) % 8) == 0)
-                        printf("\n");
-                }
-                printf("\n");
-            }
-
-            if (td->out_size != 0) {
-                printf("Recv:");
-                for (int i = 0; i < td->out_size; i++) {
-                    printf("0x%.2x, ", td->out[i]);
-                    if (((i + 1) % 8) == 0)
-                        printf("\n");
-                }
-                printf("\n");
-            }
-        }
-
-        //Formatted 
-        if ((td->in_dma.count == td->out_dma.count) && (td->in_dma.size == td->out_dma.size) && td->in_dma.addr != NULL && td->out_dma.addr != NULL) {
-            printf("DMA size: %i\n", td->in_dma.size);
-            printf("DMA count: %i\n", td->in_dma.count);
-            printf("DMA bytes: %i\n", ((td->in_dma.size << 2) * (td->in_dma.count)));
-
-            u8 *in_buff = td->in_dma.addr;
-            u8 *out_buff = td->out_dma.addr;
-
-            printf(" (DMA) Send: Recv:\n");
-            for (int i = 0; i < ((td->in_dma.size << 2) * (td->in_dma.count)); i++) {
-                printf("Byte %i: 0x%.2x, 0x%.2x\n", i, in_buff[i], out_buff[i]);
-            }
-        //Unformatted dump
-        } else {
-            if (td->in_dma.count != 0 && td->in_dma.addr != NULL && td->in_dma.size != 0) {
-                printf("DMA size: %i\n", td->in_dma.size);
-                printf("DMA count: %i\n", td->in_dma.count);
-                printf("DMA Out: %i\n", ((td->in_dma.size << 2) * (td->in_dma.count)));
-                
-                printf("Send DMA:\n");
-                u8 *in_buff = td->in_dma.addr;
-                for (int i = 0; i < ((td->in_dma.size << 2) * (td->in_dma.count)); i++) {
-                    printf("0x%.2x, ", in_buff[i]);
-                    if (((i + 1) % 8) == 0)
-                        printf("\n");
-                }
-                printf("\n");
-            }
-            
-            if (td->out_dma.count != 0 && td->out_dma.addr != NULL && td->out_dma.size != 0) {
-                printf("DMA size: %i\n", td->out_dma.size);
-                printf("DMA count: %i\n", td->out_dma.count);
-                printf("DMA In: %i\n", ((td->out_dma.size << 2) * (td->out_dma.count)));
-                
-                printf("Recv:\n");
-                u8 *out_buff = td->out_dma.addr;
-                for (int i = 0; i < ((td->out_dma.size << 2) * (td->out_dma.count)); i++) {
-                    printf("0x%.2x, ", out_buff[i]);
-                    if (((i + 1) % 8) == 0)
-                        printf("\n");
-                }
-                printf("\n");
-            }
-        }
-
-        if ((td->stat6c & 0x8000) != 0) {
-            printf("Timeout detected\n");
-        }
-
-        DPRINTF("======END======\n");
-        
-        SignalSema(lock_sema2);
-    } else {
-        WaitSema(lock_sema2);
-        rv = transfer_func(td);
-        SignalSema(lock_sema2);
-    }
-
-#else
     WaitSema(lock_sema2);
     rv = transfer_func(td);
     SignalSema(lock_sema2);
-#endif
 
     return rv;
 }
@@ -282,20 +157,21 @@ static void _sio2man_hook(iop_library_t *lib)
     }
 }
 
-//intrman hook
+// intrman hook
 static int hooked = 0;
 int (*pRegisterIntrHandler)(int irq, int mode, int (*handler)(void *), void *arg);
 static int hookRegisterIntrHandler(int irq, int mode, int (*handler)(void *), void *arg)
 {
     DPRINTF("RegisterIntrHandler irq: %i, handler @ 0x%p\n", irq, handler);
 
-    //SIO2 interrupt
+    // SIO2 interrupt
     if (irq == 17 && hooked == 0) {
-        //TODO: Possibly remove hook after SIO2MAN intr ptr is obtained
+        // TODO: Possibly remove hook after SIO2MAN intr ptr is obtained
         if (handler != mmce_sio2_intr_handler_ptr) {
             sio2man_intr_handler_ptr = handler;
             sio2man_intr_arg_ptr = arg;
             hooked = 1;
+            
             DPRINTF("Got SIO2MAN intr handler @ 0x%p, arg @ 0x%p\n", handler, arg);
         }
     }
@@ -303,11 +179,11 @@ static int hookRegisterIntrHandler(int irq, int mode, int (*handler)(void *), vo
     return pRegisterIntrHandler(irq, mode, handler, arg);
 }
 
-//loadcore hook
+// loadcore hook
 int (*pRegisterLibraryEntries)(iop_library_t *lib);
 static int hookRegisterLibraryEntries(iop_library_t *lib)
 {
-    DPRINTF("RegisterLibraryEntries: %s 0x%x\n", lib->name, lib->version);
+    //DPRINTF("RegisterLibraryEntries: %s 0x%x\n", lib->name, lib->version);
 
     if (!strcmp(lib->name, "sio2man")) {
         _sio2man_hook(lib);
@@ -323,6 +199,13 @@ int sio2man_hook_init()
 
     //DPRINTF("%s\n", __FUNCTION__);
 
+    // Get ptr to intrmans internals
+    mmce_sio2_intrman_internals_ptr = GetIntrmanInternalData();
+    if (mmce_sio2_intrman_internals_ptr == NULL) {
+        DPRINTF("Failed to get intrman internals ptr\n");
+        return -1;
+    }
+
     // Create semaphore for locking sio2man exclusively
     sema.attr    = 1;
     sema.initial = 1;
@@ -331,49 +214,38 @@ int sio2man_hook_init()
     lock_sema    = CreateSema(&sema);
     lock_sema2   = CreateSema(&sema);
 
-    // Hook into 'loadcore' so we know when sio2man is loaded in the future
-    lib = ioplib_getByName("loadcore");
-    if (lib == NULL) {
-        DeleteSema(lock_sema);
-        DeleteSema(lock_sema2);
-        return -1;
-    }
-    pRegisterLibraryEntries = ioplib_hookExportEntry(lib, 6, hookRegisterLibraryEntries);
-
     // Hook into 'sio2man' now if it's already loaded
     lib = ioplib_getByName("sio2man");
     if (lib != NULL) {
-        intrman_internals_t *intrman_internals = GetIntrmanInternalData();
-        if (intrman_internals != NULL) {
-            sio2man_intr_handler_ptr = intrman_internals->interrupt_handler_table[17].handler; //TODO: mode set in lowest 2 bits
-            sio2man_intr_arg_ptr = intrman_internals->interrupt_handler_table[17].userdata;
-            DPRINTF("Got SIO2MAN intr handler @ 0x%p, arg @ 0x%p\n", sio2man_intr_handler_ptr, sio2man_intr_arg_ptr);
-        } else {
-            DPRINTF("Failed to get intrman internals ptr\n");
-        }
-
+        // Get sio2man intr handler
+        sio2man_intr_handler_ptr = mmce_sio2_intrman_internals_ptr->interrupt_handler_table[17].handler; //TODO: mode set in lowest 2 bits
+        sio2man_intr_arg_ptr = mmce_sio2_intrman_internals_ptr->interrupt_handler_table[17].userdata;
+        DPRINTF("Got SIO2MAN intr handler @ 0x%p, arg @ 0x%p\n", sio2man_intr_handler_ptr, sio2man_intr_arg_ptr);
+    
+        // Hook into sio2man
         _sio2man_hook(lib);
         ioplib_relinkExports(lib);
+    
+    // 'sio2man' is not loaded yet
     } else {
-        // If SIO2MAN is not already loaded, hook into intrman to get SIO2MAN's intr hook later
-        // Hook into 'intrman' to grab the address of SIO2MAN's intr handler and arg
+        // Hook into 'loadcore' so we know when sio2man is loaded in the future
+        lib = ioplib_getByName("loadcore");
+        if (lib == NULL) {
+            DeleteSema(lock_sema);
+            DeleteSema(lock_sema2);
+            return -1;
+        }
+        pRegisterLibraryEntries = ioplib_hookExportEntry(lib, 6, hookRegisterLibraryEntries);
+
+        // Hook into intrman to get ptr to sio2man's intr handler in future
         lib = ioplib_getByName("intrman");
         if (lib == NULL) {
             DeleteSema(lock_sema);
             DeleteSema(lock_sema2);
-            DPRINTF("Failed to get intrman ptr\n");
             return -1;
         }
         pRegisterIntrHandler = ioplib_hookExportEntry(lib, 4, hookRegisterIntrHandler);
     }
-
-    /*
-    lib = ioplib_getByName("thbase");
-    if (lib == NULL) {
-        printf("failed to get thbase\n");
-    } else {
-        pCreateThread = ioplib_hookExportEntry(lib, 4, hookCreateThread);
-    }*/
 
     return 0;
 }
