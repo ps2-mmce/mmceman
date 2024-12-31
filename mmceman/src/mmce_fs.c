@@ -1020,6 +1020,16 @@ int mmce_fs_devctl(iomanX_iop_file_t *fd, const char *name, int cmd, void *arg, 
             res = mmce_cmd_reset();
         break;
 
+        case MMCE_SETTINGS_ACK_WAIT_CYCLES:
+            args = *(u32*)arg;
+            mmce_sio2_update_ack_wait_cycles(args);
+        break;
+
+        case MMCE_SETTINGS_SET_ALARMS:
+            args = *(u32*)arg;
+            mmce_sio2_set_use_alarm(args);
+        break;
+
         default:
         break;
     }

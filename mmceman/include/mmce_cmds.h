@@ -17,6 +17,8 @@ enum mmce_cmds {
     MMCE_CMD_GET_GAMEID,
     MMCE_CMD_SET_GAMEID,
     MMCE_CMD_RESET,
+    MMCE_SETTINGS_ACK_WAIT_CYCLES,
+    MMCE_SETTINGS_SET_ALARMS,
 };
 
 enum mmce_cmds_fs {

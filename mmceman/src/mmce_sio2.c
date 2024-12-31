@@ -129,27 +129,6 @@ void mmce_sio2_deinit()
     DeleteEventFlag(event_flag);
 }
 
-void mmce_sio2_set_port(int port)
-{
-    mmce_port = port;
-}
-
-int mmce_sio2_get_port()
-{
-    return mmce_port;
-}
-
-void mmce_sio2_update_ack_wait_cycles(int cycles)
-{
-    DPRINTF("mmceman: setting cycles to: 0x%x\n", cycles);
-
-    mmce_sio2_port_ctrl2 =
-        PCTRL1_ACK_TIMEOUT_AFTER(0xffff)        |
-        PCTRL1_WAIT_CYCLES_AFTER_ACK_LOW(cycles)|
-        PCTRL1_UNK24(0x0)                       |
-        PCTRL1_IF_MODE_SPI_DIFF(0x0);
-}
-
 void mmce_sio2_lock()
 {
     int state;
@@ -185,6 +164,32 @@ void mmce_sio2_unlock()
 
     //Unlock sio2man driver
     sio2man_hook_sio2_unlock();
+}
+
+void mmce_sio2_set_port(int port)
+{
+    mmce_port = port;
+}
+
+int mmce_sio2_get_port()
+{
+    return mmce_port;
+}
+
+void mmce_sio2_update_ack_wait_cycles(int cycles)
+{
+    DPRINTF("mmceman: setting cycles to: 0x%x\n", cycles);
+
+    mmce_sio2_port_ctrl2 =
+        PCTRL1_ACK_TIMEOUT_AFTER(0xffff)        |
+        PCTRL1_WAIT_CYCLES_AFTER_ACK_LOW(cycles)|
+        PCTRL1_UNK24(0x0)                       |
+        PCTRL1_IF_MODE_SPI_DIFF(0x0);
+}
+
+void mmce_sio2_set_use_alarm(int value)
+{
+    mmce_sio2_use_alarm = value;
 }
 
 int mmce_sio2_tx_rx_pio(u8 tx_size, u8 rx_size, u8 *tx_buf, u8 *rx_buf, iop_sys_clock_t *timeout)
@@ -413,7 +418,6 @@ int mmce_sio2_rx_mixed(u8 *buffer, u32 size)
         for (int i = 0; i < pio_size; i++) {
             buffer[offset_pio + i] = inl_sio2_data_in();
         }
-        pio_size = 0;
     }
 
     return 0;
