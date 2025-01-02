@@ -24,11 +24,9 @@ I_GetLoadcoreInternalData
 I_RegisterLibraryEntries
 loadcore_IMPORTS_end
 
-#ifndef MMCEDRV
 stdio_IMPORTS_start
 I_printf
 stdio_IMPORTS_end
-#endif
 
 sysclib_IMPORTS_start
 I_memset

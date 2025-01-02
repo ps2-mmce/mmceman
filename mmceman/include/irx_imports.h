@@ -27,11 +27,7 @@
 #include "thbase.h"
 #include "thevent.h"
 #include "thsemap.h"
-
-#ifndef MMCEDRV
 #include "stdio.h"
-#endif
-
 #include "sysclib.h"
 
 #endif /* IOP_IRX_IMPORTS_H */

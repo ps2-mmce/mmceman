@@ -19,13 +19,9 @@
 
 IRX_ID("mmcedrv", MAJOR, MINOR);
 
-struct mmcedrv_config config = {MODULE_SETTINGS_MAGIC}; //For Neutrino
 extern struct irx_export_table _exp_mmcedrv;
 
-static int mmcedrv_iso_fd;
-static int mmcedrv_vmc_fd;
-
-s64 mmcedrv_get_size()
+s64 mmcedrv_get_size(int fd)
 {
     int res;
     s64 position = -1;
@@ -36,7 +32,7 @@ s64 mmcedrv_get_size()
     wrbuf[0x0] = MMCE_ID;                       //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_LSEEK64;           //Command
     wrbuf[0x2] = MMCE_RESERVED;                 //Reserved
-    wrbuf[0x3] = mmcedrv_iso_fd;                //ISO file descriptor
+    wrbuf[0x3] = fd;                            //File descriptor
 
     wrbuf[0x4] = 0;   //Offset
     wrbuf[0x5] = 0;
@@ -77,7 +73,7 @@ s64 mmcedrv_get_size()
     return position;
 }
 
-int mmcedrv_read_sector(int type, u32 sector, u32 count, void *buffer)
+int mmcedrv_read_sector(int fd, u32 sector, u32 count, void *buffer)
 {
     int res;
     int sectors_read = 0;
@@ -85,16 +81,12 @@ int mmcedrv_read_sector(int type, u32 sector, u32 count, void *buffer)
     u8 wrbuf[0xB];
     u8 rdbuf[0xB];
 
-    DPRINTF("%s type: %i, starting sector: %i, count: %i\n", __func__, type, sector, count);
+    DPRINTF("%s fd: %i, starting sector: %i, count: %i\n", __func__, fd, sector, count);
 
-    wrbuf[0x0] = MMCE_ID;                 //Identifier
-    wrbuf[0x1] = MMCE_CMD_FS_READ_SECTOR; //Command
-    wrbuf[0x2] = MMCE_RESERVED;           //Reserved
-
-    if (type == 0)
-        wrbuf[0x3] = mmcedrv_iso_fd;    //ISO file Descriptor    
-    else
-        wrbuf[0x3] = mmcedrv_vmc_fd;    //VMC file Descriptor    
+    wrbuf[0x0] = MMCE_ID;                   //Identifier
+    wrbuf[0x1] = MMCE_CMD_FS_READ_SECTOR;   //Command
+    wrbuf[0x2] = MMCE_RESERVED;             //Reserved
+    wrbuf[0x3] = fd;                        //File Descriptor
 
     wrbuf[0x4] = (sector & 0x00FF0000) >> 16;
     wrbuf[0x5] = (sector & 0x0000FF00) >> 8;
@@ -363,22 +355,16 @@ void mmcedrv_config_set(int setting, int value)
                 DPRINTF("Invalid port setting: %i\n", value);
         break;
 
-        case MMCEDRV_SETTING_ISO_FD:
-            if (value < 8)
-                mmcedrv_iso_fd = value;
-        break;
-
-        case MMCEDRV_SETTING_VMC_FD:
-            if (value < 8)
-                mmcedrv_vmc_fd = value;
-        break;
-
         case MMCEDRV_SETTING_ACK_WAIT_CYCLES:
             if (value < 5) {
                 mmce_sio2_update_ack_wait_cycles(value);
             }
         break;
-        
+
+        case MMCEDRV_SETTING_USE_ALARMS:
+            mmce_sio2_set_use_alarm(value);
+        break;
+
         default:
         break;
     }
@@ -396,18 +382,6 @@ int __start(int argc, char *argv[])
         DPRINTF("mmce_sio2_init failed, rv %i\n", rv);
         return MODULE_NO_RESIDENT_END;
     }
-
-    //For Neutrino only, OPL uses config_set export atm
-    if (config.port != 0) {
-        DPRINTF("Started with:\n");
-        DPRINTF("Port: %i\n", config.port);
-        DPRINTF("ISO fd: %i\n", config.iso_fd);
-        DPRINTF("VMC fd: %i\n", config.vmc_fd);
-    }
-
-    mmce_sio2_set_port(config.port);
-    mmcedrv_iso_fd = config.iso_fd;
-    mmcedrv_vmc_fd = config.vmc_fd;
 
     //Register exports
     if (RegisterLibraryEntries(&_exp_mmcedrv) != 0) {
