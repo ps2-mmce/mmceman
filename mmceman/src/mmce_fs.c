@@ -8,7 +8,7 @@
 
 #include "module_debug.h"
 
-#define MMCE_FS_MAX_FD 8
+#define MMCE_FS_MAX_FD 16
 #define MMCE_FS_WAIT_TIMEOUT 128000
 
 #define NOT_SUPPORTED_OP (void*)&not_supported_operation
