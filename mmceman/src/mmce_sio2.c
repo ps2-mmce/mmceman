@@ -120,6 +120,10 @@ int mmce_sio2_init()
         PCTRL1_UNK24(0x0)                       |
         PCTRL1_IF_MODE_SPI_DIFF(0x0);
 
+
+    DPRINTF("pctrl0: 0x%.8x\n", mmce_sio2_port_ctrl1);
+    DPRINTF("pctrl1: 0x%.8x\n", mmce_sio2_port_ctrl2);
+
     return 0;
 }
 
@@ -211,6 +215,7 @@ int mmce_sio2_tx_rx_pio(u8 tx_size, u8 rx_size, u8 *tx_buf, u8 *rx_buf, iop_sys_
                         TR_CTRL_WAIT_ACK_FOREVER(0) |
                         TR_CTRL_TX_DATA_SZ(tx_size) |
                         TR_CTRL_RX_DATA_SZ(rx_size));
+
 
     //Copy data to TX FIFO
     for (int i = 0; i < tx_size; i++) {

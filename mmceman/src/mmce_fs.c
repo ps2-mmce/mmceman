@@ -643,14 +643,14 @@ int mmce_fs_dclose(iomanX_iop_file_t *file)
     u8 wrbuf[0x5];
     u8 rdbuf[0x6];
 
-    DPRINTF("%s fd: %i\n", __func__, (u8)*(int*)file->privdata);
-
     mmce_fs_update_unit(file->unit);
 
     wrbuf[0x0] = MMCE_ID;                   //Identifier
     wrbuf[0x1] = MMCE_CMD_FS_DCLOSE;        //Command
     wrbuf[0x2] = MMCE_RESERVED;             //Reserved
     wrbuf[0x3] = (u8)*(int*)file->privdata; //File descriptor
+
+    DPRINTF("%s fd: %i\n", __func__, (u8)*(int*)file->privdata);
 
     //Packet #1: Command and file descriptor
     mmce_sio2_lock();
@@ -696,6 +696,8 @@ int mmce_fs_dread(iomanX_iop_file_t *file, iox_dirent_t *dirent)
     wrbuf[0x2] = MMCE_RESERVED;             //Reserved
     wrbuf[0x3] = (u8)*(int*)file->privdata; //File descriptor
     wrbuf[0x4] = 0xff;
+
+    DPRINTF("%s fd: %i\n", __func__, (u8)*(int*)file->privdata);
 
     mmce_sio2_lock();
 
