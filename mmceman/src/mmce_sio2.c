@@ -120,10 +120,6 @@ int mmce_sio2_init()
         PCTRL1_UNK24(0x0)                       |
         PCTRL1_IF_MODE_SPI_DIFF(0x0);
 
-
-    DPRINTF("pctrl0: 0x%.8x\n", mmce_sio2_port_ctrl1);
-    DPRINTF("pctrl1: 0x%.8x\n", mmce_sio2_port_ctrl2);
-
     return 0;
 }
 
