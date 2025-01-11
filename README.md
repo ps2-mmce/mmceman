@@ -42,14 +42,14 @@ Supported file I/O operations include:
 - devctl
 - ioctl2
 # MMCEDRV
-MMCEDRV is a lightweight module designed for streaming game data from MMCE devices in an in-game environment. It is designed to be as small and efficient as possible, containing only the functionality required for game data streaming. As of writing MMCEDRV is only 13.2KB in size.
+MMCEDRV is a lightweight module designed for streaming data from MMCE devices in an in-game environment. It is designed to be as small and efficient as possible, containing only the functionality required for data streaming while in-game. As of writing MMCEDRV is only 12.6KB in size.
 
 As such MMCEDRV:
 - Does not include support for card switching, Game ID communication, or custom commands.
 - It operates independently of iomanX and fileXio
-- It requires the game and the VMC (if applicable) to be opened on the MMCE device by MMCEMAN prior to being loaded.
+- It requires all files to be opened on the MMCE by MMCEMAN prior to being loaded.
 
-MMCEDRV provides read and write functions for VMCs, similar to those in MMCEMAN, but these are accessed through exports rather than the iomanX "mmce:/" device. For streaming game data, MMCEDRV uses a custom, non-POSIX function that emulates sector reads.
+MMCEDRV provides read and write functions for VMCs, similar to those in MMCEMAN, but these are accessed through exports rather than the iomanX "mmce:/" device. For streaming data, MMCEDRV uses a custom, non-POSIX function that emulates sector reads.
 
 # Usage Notes
 ### MMCEMAN:
@@ -60,7 +60,7 @@ Card switching, Game ID communication, and other commands are exposed through fi
 
 ### MMCEDRV:
 
-Before launching MMCEDRV, the ISO and VMC (if applicable) must be opened by MMCEMAN. Their file descriptors must either be placed in the mmcedrv_config struct or be passed to MMCEDRV using the mmcedrv_config_set function (export #7).
+Before launching MMCEDRV, all files must be opened by MMCEMAN. Their file descriptors must either be placed in the mmcedrv_config struct or be passed to MMCEDRV using the mmcedrv_config_set function (export #7).
 
 # Known Issues:
 
