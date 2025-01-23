@@ -38,6 +38,7 @@ sysclib_IMPORTS_end
 thbase_IMPORTS_start
 I_SetAlarm
 I_CancelAlarm
+I_DelayThread
 thbase_IMPORTS_end
 
 thevent_IMPORTS_start

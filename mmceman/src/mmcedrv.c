@@ -19,7 +19,11 @@
 
 IRX_ID("mmcedrv", MAJOR, MINOR);
 
+#ifndef FHI
 extern struct irx_export_table _exp_mmcedrv;
+#else
+extern struct irx_export_table _exp_fhi;
+#endif
 
 s64 mmcedrv_get_size(int fd)
 {
@@ -163,7 +167,7 @@ int mmcedrv_read(int fd, int size, void *ptr)
     wrbuf[0x1] = MMCE_CMD_FS_READ;          //Command
     wrbuf[0x2] = MMCE_RESERVED;             //Reserved
     wrbuf[0x3] = 0x0;                       //Transfer mode (unused)
-    wrbuf[0x4] = fd;                        //File Descriptor 
+    wrbuf[0x4] = fd;                        //File Descriptor
     wrbuf[0x5] = (size & 0xFF000000) >> 24; //Size
     wrbuf[0x6] = (size & 0x00FF0000) >> 16;
     wrbuf[0x7] = (size & 0x0000FF00) >> 8;
@@ -209,7 +213,7 @@ int mmcedrv_read(int fd, int size, void *ptr)
     }
 
     mmce_sio2_unlock();
-    
+
     bytes_read  = rdbuf[0x1] << 24;
     bytes_read |= rdbuf[0x2] << 16;
     bytes_read |= rdbuf[0x3] << 8;
@@ -240,7 +244,7 @@ int mmcedrv_write(int fd, int size, void *ptr)
     wrbuf[0x1] = MMCE_CMD_FS_WRITE;         //Command
     wrbuf[0x2] = MMCE_RESERVED;             //Reserved
     wrbuf[0x3] = 0x0;                       //Transfer mode (unimplemented)
-    wrbuf[0x4] = fd;                        //File Descriptor 
+    wrbuf[0x4] = fd;                        //File Descriptor
     wrbuf[0x5] = (size & 0xFF000000) >> 24;
     wrbuf[0x6] = (size & 0x00FF0000) >> 16;
     wrbuf[0x7] = (size & 0x0000FF00) >> 8;
@@ -287,9 +291,9 @@ int mmcedrv_write(int fd, int size, void *ptr)
 
     mmce_sio2_unlock();
 
-    bytes_written  = rdbuf[0x1] << 24;    
-    bytes_written |= rdbuf[0x2] << 16;   
-    bytes_written |= rdbuf[0x3] << 8;   
+    bytes_written  = rdbuf[0x1] << 24;
+    bytes_written |= rdbuf[0x2] << 16;
+    bytes_written |= rdbuf[0x3] << 8;
     bytes_written |= rdbuf[0x4];
 
     if (bytes_written != size) {
@@ -323,7 +327,7 @@ int mmcedrv_lseek(int fd, int offset, int whence)
     mmce_sio2_lock();
     res = mmce_sio2_tx_rx_pio(0x9, 0xe, wrbuf, rdbuf, &timeout_1s);
     mmce_sio2_unlock();
-    
+
     if (res == -1) {
         DPRINTF("%s ERROR: P1 - Timedout waiting for /ACK\n", __func__);
         return -1;
@@ -384,10 +388,17 @@ int __start(int argc, char *argv[])
     }
 
     //Register exports
+#ifndef FHI
     if (RegisterLibraryEntries(&_exp_mmcedrv) != 0) {
         DPRINTF("ERROR: library already registered\n");
         return MODULE_NO_RESIDENT_END;
     }
+#else
+    if (RegisterLibraryEntries(&_exp_fhi) != 0) {
+        DPRINTF("ERROR: library already registered\n");
+        return MODULE_NO_RESIDENT_END;
+    }
+#endif
 
     iop_library_t * lib_modload = ioplib_getByName("modload");
     if (lib_modload != NULL) {
@@ -404,7 +415,7 @@ int __start(int argc, char *argv[])
 int __stop(int argc, char *argv[])
 {
     DPRINTF("Unloading module\n");
-    
+
     mmce_sio2_deinit();
 
     return MODULE_NO_RESIDENT_END;
@@ -412,7 +423,7 @@ int __stop(int argc, char *argv[])
 
 int _start(int argc, char *argv[])
 {
-    if (argc >= 0) 
+    if (argc >= 0)
         return __start(argc, argv);
     else
         return __stop(-argc, argv);
