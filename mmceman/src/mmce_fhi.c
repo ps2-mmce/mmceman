@@ -10,8 +10,6 @@ struct fhi_fileid fhi = {MODULE_SETTINGS_MAGIC};
 
 static int mmce_io_sema;
 
-extern void mmcedrv_config_set(int setting, int value);
-extern s64 mmcedrv_get_size(int fd);
 extern int mmcedrv_lseek(int fd, int offset, int whence);
 extern int mmcedrv_read_sector(int fd, u32 sector, u32 count, void *buffer);
 extern int mmcedrv_read(int fd, int size, void *ptr);
@@ -20,34 +18,14 @@ extern int mmcedrv_write(int fd, int size, const void *ptr);
 
 //---------------------------------------------------------------------------
 // FHI export #4
-//TEMP: used as an init func
 u32 fhi_size(int file_handle)
 {
-    uint64_t iso_size;
+    if (file_handle < 0 || file_handle >= FHI_MAX_FILES)
+        return 0;
 
-    //Set port, fd's, and settings
-    DPRINTF("Port: %i\n", fhi.devNr + 2);
-    //DPRINTF("ISO fd: %i\n", fhi.iso_fd);
-    //DPRINTF("VMC fd: %i\n", fhi.vmc_fd);
-    //DPRINTF("Ack wait cycles: %i\n", fhi.ack_wait_cycles);
-    //DPRINTF("Use alarms: %i\n", fhi.use_alarms);
+    DPRINTF("%s(%d)\n", __func__, file_handle);
 
-    mmcedrv_config_set(MMCEDRV_SETTING_PORT, fhi.devNr + 2);
-    mmcedrv_config_set(MMCEDRV_SETTING_ACK_WAIT_CYCLES, 0);
-    mmcedrv_config_set(MMCEDRV_SETTING_USE_ALARMS, 0);
-
-    DPRINTF("Waiting for device...\n");
-
-    while (1) {
-        iso_size = mmcedrv_get_size(fhi.file[file_handle].id);
-        if (iso_size > 0)
-            break;
-        DelayThread(100 * 1000); // 100ms
-    }
-
-    SignalSema(mmce_io_sema);
-
-    return iso_size;
+    return fhi.file[file_handle].size / 512;
 }
 
 //---------------------------------------------------------------------------
