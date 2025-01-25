@@ -22,9 +22,12 @@ IRX_ID("mmcedrv", MAJOR, MINOR);
 #ifndef FHI
 extern struct irx_export_table _exp_mmcedrv;
 #else
+#include "fhi_fileid.h"
 extern struct irx_export_table _exp_fhi;
+extern struct fhi_fileid fhi;
 #endif
 
+#ifndef FHI
 s64 mmcedrv_get_size(int fd)
 {
     int res;
@@ -76,6 +79,7 @@ s64 mmcedrv_get_size(int fd)
 
     return position;
 }
+#endif
 
 int mmcedrv_read_sector(int fd, u32 sector, u32 count, void *buffer)
 {
@@ -348,6 +352,7 @@ int mmcedrv_lseek(int fd, int offset, int whence)
     return position;
 }
 
+#ifndef FHI
 //For OPL, called through CDVDMAN Device
 void mmcedrv_config_set(int setting, int value)
 {
@@ -373,6 +378,7 @@ void mmcedrv_config_set(int setting, int value)
         break;
     }
 }
+#endif
 
 int __start(int argc, char *argv[])
 {
@@ -398,6 +404,10 @@ int __start(int argc, char *argv[])
         DPRINTF("ERROR: library already registered\n");
         return MODULE_NO_RESIDENT_END;
     }
+
+    mmce_sio2_set_port(fhi.devNr + 2);
+    //mmce_sio2_update_ack_wait_cycles(0);
+    //mmce_sio2_set_use_alarm(0);
 #endif
 
     iop_library_t * lib_modload = ioplib_getByName("modload");
