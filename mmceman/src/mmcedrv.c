@@ -406,8 +406,8 @@ int __start(int argc, char *argv[])
     }
 
     mmce_sio2_set_port(fhi.devNr + 2);
-    //mmce_sio2_update_ack_wait_cycles(0);
-    //mmce_sio2_set_use_alarm(0);
+    mmce_sio2_update_ack_wait_cycles(0);
+    mmce_sio2_set_use_alarm(0);
 #endif
 
     iop_library_t * lib_modload = ioplib_getByName("modload");
