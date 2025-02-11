@@ -35,6 +35,9 @@ int fhi_read(int file_handle, void *buffer, unsigned int sector_start, unsigned 
     int res = 0;
     int retries = 0;
 
+    if (file_handle < 0 || file_handle >= FHI_MAX_FILES)
+        return 0;
+
     DPRINTF("%s(%i, %u, 0x%p, %u)\n", __func__, file_handle, (unsigned int)sector_start, buffer, sector_count);
 
     WaitSema(mmce_io_sema);
@@ -53,8 +56,8 @@ int fhi_read(int file_handle, void *buffer, unsigned int sector_start, unsigned 
 
         res = res * 4;
 
-    //VMCs, use lseek + read
-    } else if (file_handle == 4 || file_handle == 5) {
+    //Other files (VMC/ATA/...), use lseek + read
+    } else {
         mmcedrv_lseek(fhi.file[file_handle].id, sector_start * 512, 0);
         res = mmcedrv_read(fhi.file[file_handle].id, sector_count * 512, buffer);
 
@@ -78,8 +81,11 @@ int fhi_write(int file_handle, const void *buffer, unsigned int sector_start, un
 {
     int res;
 
-    //Only allow writing to VMCs
-    if (file_handle != 4 && file_handle != 5) {
+    if (file_handle < 0 || file_handle >= FHI_MAX_FILES)
+        return 0;
+
+    //Don't allow writing to DVD
+    if (file_handle == FHI_FID_CDVD) {
         return 0;
     }
 
