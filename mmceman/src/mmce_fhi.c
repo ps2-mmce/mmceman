@@ -10,7 +10,7 @@ struct fhi_fileid fhi = {MODULE_SETTINGS_MAGIC};
 
 static int mmce_io_sema;
 
-extern int mmcedrv_lseek(int fd, int offset, int whence);
+extern s64 mmcedrv_lseek64(int fd, s64 offset, int whence);
 extern int mmcedrv_read_sector(int fd, u32 sector, u32 count, void *buffer);
 extern int mmcedrv_read(int fd, int size, void *ptr);
 extern int mmcedrv_write(int fd, int size, const void *ptr);
@@ -58,7 +58,7 @@ int fhi_read(int file_handle, void *buffer, unsigned int sector_start, unsigned 
 
     //Other files (VMC/ATA/...), use lseek + read
     } else {
-        mmcedrv_lseek(fhi.file[file_handle].id, sector_start * 512, 0);
+        mmcedrv_lseek64(fhi.file[file_handle].id, (s64)sector_start * 512, 0);
         res = mmcedrv_read(fhi.file[file_handle].id, sector_count * 512, buffer);
 
         if (res == sector_count * 512)
@@ -92,7 +92,7 @@ int fhi_write(int file_handle, const void *buffer, unsigned int sector_start, un
     DPRINTF("%s(%i, %u, 0x%p, %u)\n", __func__, file_handle, (unsigned int)sector_start, buffer, sector_count);
 
     WaitSema(mmce_io_sema);
-    mmcedrv_lseek(fhi.file[file_handle].id, sector_start * 512, 0);
+    mmcedrv_lseek64(fhi.file[file_handle].id, (s64)sector_start * 512, 0);
     res = mmcedrv_write(fhi.file[file_handle].id, sector_count * 512, buffer);
     SignalSema(mmce_io_sema);
 
