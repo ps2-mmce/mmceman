@@ -90,6 +90,7 @@ int __stop(int argc, char *argv[])
 {
     DPRINTF("Unloading module\n");
     
+    mmce_fs_unregister();
     mmce_sio2_deinit();
 
     return MODULE_NO_RESIDENT_END;
