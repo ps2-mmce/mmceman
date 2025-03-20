@@ -20,6 +20,7 @@ jobs:
     - name: Compile project & Install
       run: |
         make clean all
+        cp */irx/*.irx .
 
     - name: Get short SHA
       id: slug
@@ -31,14 +32,14 @@ jobs:
       with:
         name: mmceman-${{ steps.slug.outputs.sha8 }}
         path: |
-          irx/*.irx
+          *.irx
 
     - name: Create release
       if: github.ref == 'refs/heads/main'
-      uses: marvinpinto/action-automatic-releases@latest
+      uses: mathieucarbou/marvinpinto-action-automatic-releases@latest
       with:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
         automatic_release_tag: "latest"
         title: "Latest mmceman IRX driver"
         files: |
-          irx/*.irx
+          *.irx
