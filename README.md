@@ -25,22 +25,22 @@ MMCEMAN is easy to extend. Custom commands can be easily added and exposed throu
 MMCEMAN provides access to the MMCE's file system through standard POSIX file I/O calls. It integrates with iomanX and fileXio, enabling access via "mmce0:/" and "mmce1:/" (depending on the slot used).
 
 Supported file I/O operations include:
-- open
-- close
-- read
-- write
-- lseek
-- ioctl
-- remove
-- mkdir
-- rmdir
-- dopen
-- dclose
-- dread
-- getstat
-- lseek64
-- devctl
-- ioctl2
+- `open`
+- `close`
+- `read`
+- `write`
+- `lseek`
+- `ioctl`
+- `remove`
+- `mkdir`
+- `rmdir`
+- `dopen`
+- `dclose`
+- `dread`
+- `getstat`
+- `lseek64`
+- `devctl`
+- `ioctl2`
 # MMCEDRV
 MMCEDRV is a lightweight module designed for streaming data from MMCE devices in an in-game environment. It is designed to be as small and efficient as possible, containing only the functionality required for data streaming while in-game. As of writing MMCEDRV is only 12.6KB in size.
 
@@ -83,10 +83,10 @@ What happens:
 3. However, padman is not given the time to run because loader_d has a higher priority, resulting in a deadlock.
 
 # Build notes:
-The SIO2MAN hook depends on intrman's export #3 to obtain a pointer to SIO2MAN's interrupt handler when MMCEMAN is loaded after SIO2MAN, as is the case with OPL. To compile it, you may need to expose export #3 by modifying the file ``ps2dev/ps2sdk/iop/include/intrman.h``. Add the following line to the file:
-```
-#define I_GetIntrmanInternalData DECLARE_IMPORT(3, GetIntrmanInternalData)
-```
+If you are using a relatively older PS2SDK, you will find errors related to the symbol `I_GetIntrmanInternalData` not being defined.
+
+if you come accross this issue, replace inside the file `imports.lst` that `I_GetIntrmanInternalData` with `DECLARE_IMPORT(3, GetIntrmanInternalData)`
+
 
 # Special Thanks:
 - Wisi: SIO2 exploration and documentation
