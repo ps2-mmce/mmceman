@@ -43,6 +43,56 @@ static void _sio2_transfer_init(psio2_transfer_init init_func)
     init_func();
 }
 
+#ifdef MMCEMON
+static void sio2_describe_transfer(sio2_transfer_data_t *td) {
+    u32 elements[16];
+    u8 counter = 0;
+
+    if (td->in[0] == 0x81) { // memory card command
+        for (int i = 0; i < 16; i++) {
+            if (td->regdata[i] != 0) {
+                counter++;
+            } else {
+                break;
+            }
+        }
+#ifndef MMCEMON_STRICT_LOGGING
+        RPRINTF("stat6c bits: 0x%x\n", td->stat6c);
+        RPRINTF("Transfers in queue: %i / 16\n", counter);
+#endif
+
+        u32 running_offset = 0;
+        for (int i = 0; i < counter; i++) {
+            
+            u8 port = td->regdata[i] & 0x3;
+            u8 size = (td->regdata[i] & 0x1FF00) >> 8;
+#ifdef PORT_TARGET
+            if (port == PORT_TARGET)
+#endif
+            {
+            RPRINTF("Transfer %i of %i, size %i, port %i\n", i+1, counter, size, port);
+
+                u8 *out = &td->out[running_offset];
+                u8 *in  = &td->in[running_offset];
+
+                running_offset += size;
+
+                RPRINTF("In (PS2->MC):  Out (PS2<-MC):\n");
+                for (int j = 0; j < size; j++) {
+                    RPRINTF("0x%.2x           0x%.2x\n", in[j], out[j]);
+                }
+            }
+#ifdef PORT_TARGET
+            else {
+                RPRINTF("skip transf for port != %d\n", PORT_TARGET);
+            }
+#endif
+        }
+        printf("\n");
+    }
+}
+#endif
+
 // Generic sio2man transfer function
 static int _sio2_transfer(psio2_transfer transfer_func, sio2_transfer_data_t *td)
 {
@@ -52,6 +102,9 @@ static int _sio2_transfer(psio2_transfer transfer_func, sio2_transfer_data_t *td
 
     WaitSema(lock_sema2);
     rv = transfer_func(td);
+    #ifdef MMCEMON
+        sio2_describe_transfer(td);
+    #endif
     SignalSema(lock_sema2);
 
     return rv;
@@ -183,7 +236,7 @@ static int hookRegisterIntrHandler(int irq, int mode, int (*handler)(void *), vo
 int (*pRegisterLibraryEntries)(iop_library_t *lib);
 static int hookRegisterLibraryEntries(iop_library_t *lib)
 {
-    //DPRINTF("RegisterLibraryEntries: %s 0x%x\n", lib->name, lib->version);
+    DPRINTF("RegisterLibraryEntries: %s 0x%x\n", lib->name, lib->version);
 
     if (!strcmp(lib->name, "sio2man")) {
         _sio2man_hook(lib);

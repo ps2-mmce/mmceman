@@ -41,6 +41,7 @@ Supported file I/O operations include:
 - `lseek64`
 - `devctl`
 - `ioctl2`
+
 # MMCEDRV
 MMCEDRV is a lightweight module designed for streaming data from MMCE devices in an in-game environment. It is designed to be as small and efficient as possible, containing only the functionality required for data streaming while in-game. As of writing MMCEDRV is only 12.6KB in size.
 
@@ -50,6 +51,11 @@ As such MMCEDRV:
 - It requires all files to be opened on the MMCE by MMCEMAN prior to being loaded.
 
 MMCEDRV provides read and write functions for VMCs, similar to those in MMCEMAN, but these are accessed through exports rather than the iomanX "mmce:/" device. For streaming data, MMCEDRV uses a custom, non-POSIX function that emulates sector reads.
+
+# MMCEMON
+MMCEMON is basically MMCEMAN with extended logging features. the module will print information (to stdout, redirecting that to human readable devices/methods is not included on the module. see PPCTTY and similar IRXs) about specific ports or from any port.
+
+By default, the module will only print information from memory card port 2, because that's the original purpose of the driver
 
 # Usage Notes
 ### MMCEMAN:
