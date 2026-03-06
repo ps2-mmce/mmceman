@@ -8,6 +8,8 @@ int _dummy(void) {
     return 1;
 }
 
+#ifndef FHI
+// Exports needed by OPL
 DECLARE_EXPORT_TABLE(mmcedrv, 1, 1)
     DECLARE_EXPORT(_retonly)
     DECLARE_EXPORT(_retonly)
@@ -20,3 +22,15 @@ DECLARE_EXPORT_TABLE(mmcedrv, 1, 1)
     DECLARE_EXPORT(mmcedrv_write)
     DECLARE_EXPORT(mmcedrv_lseek)
 END_EXPORT_TABLE
+#else
+// Exports needed by neutrino
+DECLARE_EXPORT_TABLE(fhi, 1, 1)
+    DECLARE_EXPORT(_retonly)
+    DECLARE_EXPORT(_retonly)
+    DECLARE_EXPORT(_ret0)
+    DECLARE_EXPORT(_retonly)
+    DECLARE_EXPORT(fhi_size)
+    DECLARE_EXPORT(fhi_read)
+    DECLARE_EXPORT(fhi_write)
+END_EXPORT_TABLE
+#endif
