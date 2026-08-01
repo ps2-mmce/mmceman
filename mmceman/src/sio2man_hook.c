@@ -23,7 +23,10 @@
 // #define DEBUG  //comment out this line when not debugging
 #include "module_debug.h"
 
+#if 0
+// Only needed for mx4sio
 #define PORT_NR 3
+#endif
 #ifndef M_DEBUG
 #define M_DEBUG DPRINTF
 #endif
