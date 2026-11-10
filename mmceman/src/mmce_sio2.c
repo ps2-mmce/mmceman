@@ -21,6 +21,26 @@ iop_sys_clock_t timeout_200ms;
 iop_sys_clock_t timeout_1s;
 iop_sys_clock_t timeout_2s;
 
+static void mmce_sio2_clear_queue_and_settle(void)
+{
+    volatile int delay;
+
+    for (int i = 0; i < 16; i++) {
+        inl_sio2_regN_set(i, 0);
+    }
+
+    // Allow the device's /CS interrupt to reset its PIO before the next packet.
+    for (delay = 0; delay < 200; delay++) {
+        __asm__ __volatile__("" : : : "memory");
+    }
+}
+
+static void mmce_sio2_reset_and_settle(void)
+{
+    inl_sio2_ctrl_set(0x0ac);
+    mmce_sio2_clear_queue_and_settle();
+}
+
 static int mmce_sio2_wait_for_transfer(iop_sys_clock_t *timeout)
 {
     iop_sys_clock_t start;
@@ -38,13 +58,14 @@ static int mmce_sio2_wait_for_transfer(iop_sys_clock_t *timeout)
         if (elapsed_hi > timeout->hi ||
             (elapsed_hi == timeout->hi && elapsed_lo >= timeout->lo)) {
             DPRINTF("SIO2 transfer timed out\n");
-            inl_sio2_ctrl_set(0x0ac);
+            mmce_sio2_reset_and_settle();
             inl_sio2_stat_set(0x3);
             return -1;
         }
     }
 
     inl_sio2_stat_set(0x3);
+    mmce_sio2_clear_queue_and_settle();
     return 0;
 }
 
@@ -99,6 +120,8 @@ void mmce_sio2_lock()
     //Lock sio2man driver so we can use it exclusively
     sio2man_hook_sio2_lock();
 
+    mmce_sio2_clear_queue_and_settle();
+
     //Copy port ctrl settings to SIO2 registers
     inl_sio2_portN_ctrl1_set(mmce_port, mmce_sio2_port_ctrl1);
     inl_sio2_portN_ctrl2_set(mmce_port, mmce_sio2_port_ctrl2);
@@ -108,6 +131,7 @@ void mmce_sio2_unlock()
 {
     //Restore SIO2MAN's interrupt settings before releasing its lock.
     inl_sio2_ctrl_set(0x03bc);
+    mmce_sio2_clear_queue_and_settle();
 
     //Unlock sio2man driver
     sio2man_hook_sio2_unlock();
@@ -141,8 +165,8 @@ void mmce_sio2_set_use_alarm(int value)
 
 int mmce_sio2_tx_rx_pio(u8 tx_size, u8 rx_size, u8 *tx_buf, u8 *rx_buf, iop_sys_clock_t *timeout)
 {
-    //Reset SIO2 and FIFO pointers without enabling SIO2 interrupts.
-    inl_sio2_ctrl_set(0x0ac);
+    //Reset SIO2, clear transfer queue and settle device without enabling SIO2 interrupts.
+    mmce_sio2_reset_and_settle();
 
     //Add transfer to queue
     inl_sio2_regN_set(0,
@@ -200,8 +224,8 @@ int mmce_sio2_rx_dma(u8 *buffer, u32 size)
                       TR_CTRL_RX_DATA_SZ(256);
 
    while (elements != 0) {
-        //Reset SIO2 and FIFO pointers without enabling interrupts.
-        inl_sio2_ctrl_set(0x0ac);
+        //Reset SIO2, clear transfer queue and settle device without enabling interrupts.
+        mmce_sio2_reset_and_settle();
 
         elements_do = elements > 16 ? 16 : elements;
 
@@ -267,8 +291,8 @@ int mmce_sio2_rx_mixed(u8 *buffer, u32 size)
                       TR_CTRL_RX_DATA_SZ(pio_size);
 
     while (bytes_done < size) {
-        //Reset SIO2 and FIFO pointers without enabling interrupts.
-        inl_sio2_ctrl_set(0x0ac);
+        //Reset SIO2, clear transfer queue and settle device without enabling interrupts.
+        mmce_sio2_reset_and_settle();
 
         //Used for DMA
         offset = bytes_done;
@@ -378,8 +402,8 @@ int mmce_sio2_tx_mixed(u8 *buffer, u32 size)
 
             //Full 4KB DMA transfer
             if (elements_do == 16) {
-                //Reset SIO2 and FIFO pointers without enabling interrupts.
-                inl_sio2_ctrl_set(0x0ac);
+                //Reset SIO2, clear transfer queue and settle device without enabling interrupts.
+                mmce_sio2_reset_and_settle();
 
                 for (int i = 0; i < elements_do; i++) {
                     inl_sio2_regN_set(i, dma_element);
@@ -404,8 +428,8 @@ int mmce_sio2_tx_mixed(u8 *buffer, u32 size)
                 //Remaining DMA elements
                 if (elements_do != 0) {
 
-                    //Reset SIO2 and FIFO pointers without enabling interrupts.
-                    inl_sio2_ctrl_set(0x0ac);
+                    //Reset SIO2, clear transfer queue and settle device without enabling interrupts.
+                    mmce_sio2_reset_and_settle();
 
                     for (int i = 0; i < elements_do; i++) {
                         inl_sio2_regN_set(i, dma_element);
@@ -427,8 +451,8 @@ int mmce_sio2_tx_mixed(u8 *buffer, u32 size)
                 //PIO element
                 if (pio_size != 0) {
                     
-                    //Reset SIO2 and FIFO pointers without enabling interrupts.
-                    inl_sio2_ctrl_set(0x0ac);
+                    //Reset SIO2, clear transfer queue and settle device without enabling interrupts.
+                    mmce_sio2_reset_and_settle();
                     
                     inl_sio2_regN_set(0, pio_element);
 

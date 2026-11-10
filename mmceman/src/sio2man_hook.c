@@ -214,6 +214,8 @@ void sio2man_hook_sio2_lock()
     // Lock sio2man driver so we can use it exclusively
     if (g_hook_data[1].m_lock)
         g_hook_data[1].m_lock();
+    else if (g_hook_data[0].m_lock)
+        g_hook_data[0].m_lock();
 }
 
 void sio2man_hook_sio2_unlock()
@@ -221,4 +223,6 @@ void sio2man_hook_sio2_unlock()
     // Unlock sio2man driver
     if (g_hook_data[1].m_26_psio2_transfer_reset)
         g_hook_data[1].m_26_psio2_transfer_reset();
+    else if (g_hook_data[0].m_26_psio2_transfer_reset)
+        g_hook_data[0].m_26_psio2_transfer_reset();
 }
