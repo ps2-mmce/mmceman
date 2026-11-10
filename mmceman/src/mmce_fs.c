@@ -718,9 +718,9 @@ int mmce_fs_dread(iomanX_iop_file_t *file, iox_dirent_t *dirent)
     }
 
     if (rdbuf[0x4] != 0) {
-        DPRINTF("%s ERROR: Returned %i, Expected 0\n", __func__, rdbuf[0x4]);
+        DPRINTF("%s: end of directory (status %i)\n", __func__, rdbuf[0x4]);
         mmce_sio2_unlock();
-        return -1;
+        return 0;
     }
 
     //Packet #n + 1: io_stat_t and filename len
@@ -799,7 +799,7 @@ int mmce_fs_dread(iomanX_iop_file_t *file, iox_dirent_t *dirent)
 
     mmce_sio2_unlock();
 
-    return rdbuf[0x1]; //itr fd from mmce
+    return 1;
 }
 
 int mmce_fs_getstat(iomanX_iop_file_t *file, const char *name, iox_stat_t *stat)
@@ -903,7 +903,7 @@ int mmce_fs_getstat(iomanX_iop_file_t *file, const char *name, iox_stat_t *stat)
 
     if (rdbuf[0x29] != 0) {
         DPRINTF("Got bad return: %i\n", rdbuf[0x29]);
-        return -1;
+        return -ENOENT;
     } else {
         DPRINTF("Got good return\n");
     }
