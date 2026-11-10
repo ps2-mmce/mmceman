@@ -48,11 +48,6 @@ struct sio2man_hook_data
 
 static struct sio2man_hook_data g_hook_data[2];
 static iop_library_t *g_loadcore_lib;
-#if SIO2MAN_HOOK_SUPPORT_SET_INTR_HANDLER
-static iop_library_t *g_intrman_lib;
-static int (*g_sio2man_intr_handler_ptr)(void *arg);
-static void *g_sio2man_intr_arg_ptr;
-#endif
 
 #ifdef PORT_NR
 static sio2_transfer_data_t g_null_td;
@@ -84,9 +79,6 @@ static int _2_25_sio2_transfer(sio2_transfer_data_t *td) { return _sio2_transfer
 #endif
 
 static void unhook_loadcore(void);
-#if SIO2MAN_HOOK_SUPPORT_SET_INTR_HANDLER
-static void unhook_intrman(void);
-#endif
 
 static void _sio2man_hook(iop_library_t *lib)
 {
@@ -124,29 +116,6 @@ static void _sio2man_hook(iop_library_t *lib)
     CpuResumeIntr(state);
 }
 
-#if SIO2MAN_HOOK_SUPPORT_SET_INTR_HANDLER
-// intrman hook
-static int (*pRegisterIntrHandler)(int irq, int mode, int (*handler)(void *), void *arg);
-static int hookRegisterIntrHandler(int irq, int mode, int (*handler)(void *), void *arg)
-{
-    int ret;
-    M_DEBUG("RegisterIntrHandler irq: %i, handler @ 0x%p\n", irq, handler);
-
-    ret = pRegisterIntrHandler(irq, mode, handler, arg);
-    // If handler already exists or other error, then do not save handler
-    if (ret)
-        return ret;
-    // SIO2 interrupt
-    if (irq == IOP_IRQ_SIO2 && !g_sio2man_intr_handler_ptr) {
-        g_sio2man_intr_handler_ptr = handler;
-        g_sio2man_intr_arg_ptr = arg;
-        M_DEBUG("Got SIO2MAN intr handler @ 0x%p, arg @ 0x%p\n", handler, arg);
-        unhook_intrman();
-    }
-    return ret;
-}
-#endif
-
 // loadcore hook
 static int (*pRegisterLibraryEntries)(iop_library_t *lib);
 static int hookRegisterLibraryEntries(iop_library_t *lib)
@@ -176,21 +145,6 @@ static void unhook_loadcore(void)
     CpuResumeIntr(state);
 }
 
-#if SIO2MAN_HOOK_SUPPORT_SET_INTR_HANDLER
-static void unhook_intrman(void)
-{
-    int state;
-
-    CpuSuspendIntr(&state);
-    if (g_intrman_lib) {
-        if (pRegisterIntrHandler)
-            ioplib_hookSameExportEntries(g_intrman_lib, 4, pRegisterIntrHandler);
-        g_intrman_lib = NULL;
-    }
-    CpuResumeIntr(state);
-}
-#endif
-
 static int generic_hook_iterate_cb(iop_library_t *lib, void *userdata)
 {
     (void)userdata;
@@ -219,37 +173,14 @@ int sio2man_hook_init()
 {
     M_DEBUG("%s\n", __FUNCTION__);
 
-#if SIO2MAN_HOOK_SUPPORT_SET_INTR_HANDLER
-    {
-        intrman_internals_t *intrman_internals;
-
-        intrman_internals = GetIntrmanInternalData();
-        // Get sio2man intr handler
-        g_sio2man_intr_handler_ptr = intrman_internals->interrupt_handler_table[IOP_IRQ_SIO2].handler;
-        g_sio2man_intr_arg_ptr = intrman_internals->interrupt_handler_table[IOP_IRQ_SIO2].userdata;
-    }
-#endif
-
     // Hook into 'sio2man' now if it's already loaded
     if (!ioplib_iterateByName("sio2man", &sio2man_hook_iterate_cb, NULL)) {
         // Hook into 'loadcore' so we know when sio2man is loaded in the future
         ioplib_iterateByName("loadcore", &generic_hook_iterate_cb, &g_loadcore_lib);
-#if SIO2MAN_HOOK_SUPPORT_SET_INTR_HANDLER
-        // Hook into 'intrman' so we can get its handlers when they are registered
-        ioplib_iterateByName("intrman", &generic_hook_iterate_cb, &g_intrman_lib);
-#endif
         if (!g_loadcore_lib)
             return -1;
-#if SIO2MAN_HOOK_SUPPORT_SET_INTR_HANDLER
-        if (!g_intrman_lib)
-            return -1;
-#endif
         pRegisterLibraryEntries = ioplib_hookSameExportEntries(g_loadcore_lib, 6, hookRegisterLibraryEntries);
         ioplib_relinkExports(g_loadcore_lib);
-#if SIO2MAN_HOOK_SUPPORT_SET_INTR_HANDLER
-        pRegisterIntrHandler = ioplib_hookSameExportEntries(g_intrman_lib, 4, hookRegisterIntrHandler);
-        ioplib_relinkExports(g_intrman_lib);
-#endif
     }
 
     return 0;
@@ -276,9 +207,6 @@ void sio2man_hook_deinit()
     }
 
     unhook_loadcore();
-#if SIO2MAN_HOOK_SUPPORT_SET_INTR_HANDLER
-    unhook_intrman();
-#endif
 }
 
 void sio2man_hook_sio2_lock()
@@ -294,17 +222,3 @@ void sio2man_hook_sio2_unlock()
     if (g_hook_data[1].m_26_psio2_transfer_reset)
         g_hook_data[1].m_26_psio2_transfer_reset();
 }
-
-#if SIO2MAN_HOOK_SUPPORT_SET_INTR_HANDLER
-void sio2man_hook_sio2_set_intr_handler(int (*handler)(void *userdata), void *userdata)
-{
-    intrman_internals_t *intrman_internals;
-    int state;
-
-    intrman_internals = GetIntrmanInternalData();
-    CpuSuspendIntr(&state);
-    intrman_internals->interrupt_handler_table[IOP_IRQ_SIO2].handler = handler ? handler : g_sio2man_intr_handler_ptr;
-    intrman_internals->interrupt_handler_table[IOP_IRQ_SIO2].userdata = handler ? userdata : g_sio2man_intr_arg_ptr;
-    CpuResumeIntr(state);    
-}
-#endif

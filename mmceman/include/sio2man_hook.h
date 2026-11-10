@@ -14,10 +14,6 @@
 #ifndef SIO2MAN_HOOK_H
 #define SIO2MAN_HOOK_H
 
-#ifndef SIO2MAN_HOOK_SUPPORT_SET_INTR_HANDLER
-#define SIO2MAN_HOOK_SUPPORT_SET_INTR_HANDLER 1
-#endif
-
 extern int sio2man_hook_init();
 extern void sio2man_hook_deinit();
 
@@ -26,8 +22,5 @@ extern void sio2man_hook_deinit();
 // Do NOT lock for long duration, only for single (high speed) transfers
 extern void sio2man_hook_sio2_lock();
 extern void sio2man_hook_sio2_unlock();
-#if SIO2MAN_HOOK_SUPPORT_SET_INTR_HANDLER
-extern void sio2man_hook_sio2_set_intr_handler(int (*handler)(void *userdata), void *userdata);
-#endif
 
 #endif
