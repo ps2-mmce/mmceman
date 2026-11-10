@@ -39,8 +39,7 @@ typedef void (*psio2_transfer_reset)(void);
 struct sio2man_hook_data
 {
     iop_library_t *m_lib;
-    // Original sio2man function pointers
-    psio2_transfer_init m_23_psio2_pad_transfer_init;
+    psio2_transfer_init m_lock;
 #ifdef PORT_NR
     psio2_transfer m_25_psio2_transfer;
 #endif
@@ -92,41 +91,34 @@ static void unhook_intrman(void);
 static void _sio2man_hook(iop_library_t *lib)
 {
     int state;
+    int major_version;
+    unsigned int table_size;
 
     // Disable interrupts to prevent race conditions with MC/PAD libraries
     CpuSuspendIntr(&state);
-    // Only the newest sio2man libraries (using one semaphore for locks for all devices) are supported
-    switch (lib->version)
-    {
-        case IRX_VER(1, 2):
-        case IRX_VER(2, 7):
-        {
-            int major_version;
-
-            M_DEBUG("Installing sio2man hooks for version 0x%x\n", lib->version);
-
-            major_version = ((lib->version >> 8) & 0xFF);
-            if (g_hook_data[major_version - 1].m_lib) {
-                M_DEBUG("Warning: trying to hook sio2man version 0x%x\n", lib->version);
-                M_DEBUG("         while version 0x%x already hooked\n", g_hook_data[major_version - 1].m_lib->version);
-            }
-            g_hook_data[major_version - 1].m_lib = lib;
-            g_hook_data[major_version - 1].m_23_psio2_pad_transfer_init  = lib->exports[23];
-#ifdef PORT_NR
-            g_hook_data[major_version - 1].m_25_psio2_transfer           = ioplib_hookSameExportEntries(lib, 25, (major_version == 1) ? &_1_25_sio2_transfer : &_2_25_sio2_transfer);
-#endif
-            g_hook_data[major_version - 1].m_26_psio2_transfer_reset     = lib->exports[26];
-#ifdef PORT_NR
-            ioplib_relinkExports(lib);
-#endif
-            break;
-        }
-        default:
-        {
-            M_DEBUG("ERROR: sio2man version 0x%x not supported\n", lib->version);
-            break;
-        }
+    major_version = (lib->version >> 8) & 0xFF;
+    table_size = ioplib_getTableSize(lib);
+    if (major_version < 1 || major_version > 2 || table_size < 27) {
+        M_DEBUG("ERROR: sio2man version 0x%x with %u exports is not supported\n", lib->version, table_size);
+        CpuResumeIntr(state);
+        return;
     }
+
+    M_DEBUG("Installing sio2man hooks for version 0x%x\n", lib->version);
+
+    if (g_hook_data[major_version - 1].m_lib) {
+        M_DEBUG("Warning: trying to hook sio2man version 0x%x\n", lib->version);
+        M_DEBUG("         while version 0x%x already hooked\n", g_hook_data[major_version - 1].m_lib->version);
+    }
+    g_hook_data[major_version - 1].m_lib = lib;
+    g_hook_data[major_version - 1].m_lock = table_size >= 51 ? lib->exports[50] : lib->exports[24];
+#ifdef PORT_NR
+    g_hook_data[major_version - 1].m_25_psio2_transfer = ioplib_hookSameExportEntries(lib, 25, (major_version == 1) ? &_1_25_sio2_transfer : &_2_25_sio2_transfer);
+#endif
+    g_hook_data[major_version - 1].m_26_psio2_transfer_reset = lib->exports[26];
+#ifdef PORT_NR
+    ioplib_relinkExports(lib);
+#endif
     if (g_hook_data[0].m_lib && g_hook_data[1].m_lib)
         unhook_loadcore();
     CpuResumeIntr(state);
@@ -292,8 +284,8 @@ void sio2man_hook_deinit()
 void sio2man_hook_sio2_lock()
 {
     // Lock sio2man driver so we can use it exclusively
-    if (g_hook_data[1].m_23_psio2_pad_transfer_init)
-        g_hook_data[1].m_23_psio2_pad_transfer_init();
+    if (g_hook_data[1].m_lock)
+        g_hook_data[1].m_lock();
 }
 
 void sio2man_hook_sio2_unlock()
