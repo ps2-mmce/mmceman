@@ -13,8 +13,6 @@ iomanX_IMPORTS_end
 #endif
 
 intrman_IMPORTS_start
-I_EnableIntr
-I_GetIntrmanInternalData
 I_CpuSuspendIntr
 I_CpuResumeIntr
 intrman_IMPORTS_end
@@ -36,17 +34,8 @@ I_strcmp
 sysclib_IMPORTS_end
 
 thbase_IMPORTS_start
-I_SetAlarm
-I_CancelAlarm
+I_GetSystemTime
 thbase_IMPORTS_end
-
-thevent_IMPORTS_start
-I_CreateEventFlag
-I_DeleteEventFlag
-I_iSetEventFlag
-I_ClearEventFlag
-I_WaitEventFlag
-thevent_IMPORTS_end
 
 thsemap_IMPORTS_start
 I_CreateSema

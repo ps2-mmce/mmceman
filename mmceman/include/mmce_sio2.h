@@ -8,8 +8,6 @@ extern iop_sys_clock_t timeout_200ms;
 extern iop_sys_clock_t timeout_1s;
 extern iop_sys_clock_t timeout_2s;
 
-extern u8 mmce_sio2_use_alarm;
-
 int mmce_sio2_init();
 
 //Remove hooks and deinit
@@ -30,7 +28,7 @@ int mmce_sio2_get_port();
 //Update PCTRL1_WAIT_CYCLES_AFTER_ACK_LOW value
 void mmce_sio2_update_ack_wait_cycles(int cycles);
 
-//Enable/disable setting alarms for transfer timeouts
+//Deprecated compatibility no-op; transfer timeouts are polled.
 void mmce_sio2_set_use_alarm(int value);
 
 //RX TX PIO single transfer (1-256 bytes)
